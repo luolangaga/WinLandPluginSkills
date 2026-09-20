@@ -1,0 +1,14 @@
+{
+  "id": "my-plugin",
+  "name": "我的插件",
+  "version": "1.0.0",
+  "entry_dll": "MyPlugin.dll",
+  "api_version": 2,
+  "min_host_version": "2.0.0",
+  "description": "一句话说明这个插件做什么（会显示在插件市场列表里）",
+  "author": "你的名字",
+  "icon_glyph": "\uE8BD",
+  "homepage": "https://github.com/你的用户名/my-plugin",
+  "license": "MIT",
+  "tags": ["demo"]
+}
