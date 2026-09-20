@@ -43,9 +43,9 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 ## 全流程地图
 
 ```
-第 0 步  想清楚做什么（功能 / 名字 / 署名）
+第 0 步  想清楚做什么（功能 / 名字 / 署名）——可与下面的环境体检并行
    │
-第 1 步  准备环境：.NET 10 SDK、WinIsland 源码（含 WinIsland.Core）、宿主位置
+第 1 步  环境体检：跑 check-env.ps1，缺 .NET 就帮忙装，确认源码与宿主位置
    │
 第 2 步  从模板 assets/plugin-template/ 建项目并改名
    │
@@ -71,20 +71,27 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 然后给用户一个"最小可用版"方案确认：小岛显示什么、展开后显示什么、设置页有哪些开关。**第一版功能越少越好**，先把全流程跑通，再迭代。
 
-## 第 1 步：准备环境
+> **别让用户干等**：问完上面的问题、等用户回答的同时，就把第 1 步的 `scripts/check-env.ps1` 跑起来——环境体检和问需求并行进行，有缺的东西可以早点告诉用户。
 
-需要三样东西，逐项确认：
+## 第 1 步：环境体检（缺什么补什么）
 
-1. **.NET SDK 10 或更新**：跑 `dotnet --list-sdks`，版本列表里有 `10.x` 及以上即可（`11.x` 也行）。没有 → 让用户去 `https://dotnet.microsoft.com/download` 安装 .NET 10 SDK（说清楚：这是编译插件的工具箱）。
-2. **WinIsland 源码仓库**（里面有 `WinIsland.Core` 文件夹，那就是插件 SDK）。直接问用户："你电脑上的 WinIsland 源码在哪个文件夹？" 
+**先跑本技能的 `scripts/check-env.ps1`**（能确认源码路径就带上：`-WinIslandRepo "<WinIsland源码目录>"`），它会给出一张清单（.NET SDK / git / GitHub CLI / PowerShell / 源码），**再用大白话念给用户听**。然后缺什么补什么：
+
+1. **.NET SDK 10 或更新**（编译插件的"工具箱"，硬性要求）——缺失就**主动提出帮用户装**：
+   - 先征得同意（装软件是改动用户电脑，要说清"装什么、干什么用"）
+   - 首选你代跑 `winget install --id Microsoft.DotNet.SDK.10`（弹 UAC 时让用户点"是"；装完**重开终端**才能识别）
+   - 没有 winget 或安装失败 → 让用户打开 `https://dotnet.microsoft.com/download/dotnet/10.0` 下载安装包双击安装
+   - 装完再跑一次 `dotnet --list-sdks` 验证，出现 `10.x` 及以上才继续
+2. **WinIsland 源码仓库**（里面有 `WinIsland.Core` 文件夹，那就是插件 SDK）。直接问用户："你电脑上的 WinIsland 源码在哪个文件夹？"
    - 找不到时：告诉用户 SDK 2.0 目前**没有**发布到 NuGet 包站（NuGet 上的 1.x 不兼容、不能用），必须拿到源码；然后问用户源码可以从哪里获得（本地压缩包 / 某个仓库地址），别自己乱猜乱下载。
 3. **宿主位置（关键）**：插件最终要放进 WinIsland 的 `plugins\` 目录（与 `WinIsland.exe` 同一文件夹）。分两处：
-   - **用户平时用的那个 WinIsland**（安装版 / 便携版）——这是"实测"用的，必须找到它（下一步会用到）。
-     自动找：跑本技能的 `scripts/find-winisland.ps1`（会从正在运行的进程、注册表、开始菜单快捷方式、常见目录里找），把结果给用户确认；
+   - **用户平时用的那个 WinIsland**（安装版 / 便携版）——这是"实测"用的，必须找到它（第 4 步要用）。
+     自动找：跑 `scripts/find-winisland.ps1`（会从正在运行的进程、注册表、开始菜单快捷方式、常见目录里找），把结果给用户确认；
      找不到就教用户手动定位：右键桌面 / 开始菜单里的 WinIsland 图标 →「打开文件所在位置」。
    - 源码构建出来的副本（开发调试用）：`<源码仓库>\WinIsland\bin\<Debug|Release>\net10.0-windows10.0.26100.0\win-x64\`
+4. **git / GitHub CLI（gh）**：现在缺了也不影响写插件（体检脚本会列出来），等第 6 步要上传时再补装——装法见 `references/publish.md`。
 
-记下来：**用户实际使用的宿主目录**及其 `plugins\` 路径、以及源码构建副本的路径。
+记下来：**用户实际使用的宿主目录**及其 `plugins\` 路径、以及源码构建副本的路径。体检没过就先解决，别急着进第 2 步。
 
 ## 第 2 步：从模板创建项目
 
@@ -196,6 +203,7 @@ pwsh tools/pack-plugin.ps1 -ProjectDir samples\<项目名> -Configuration Releas
 | `references/publish.md` | 第 6 步上传前必读：GitHub 登录、源码仓库、投稿 PR、话术与兜底方案 |
 | `references/troubleshooting.md` | 编译、加载、动画、依赖出问题时 |
 | `assets/plugin-template/` | 第 2 步建项目时整体复制 |
+| `scripts/check-env.ps1` | 第 1 步开工前先跑：检查 .NET SDK / git / gh / pwsh / 源码，缺什么按提示补 |
 | `scripts/find-winisland.ps1` | 第 1 步找"用户平时用的 WinIsland"装在哪：跑一遍，把结果给用户确认 |
 
 ## 说话方式示例
