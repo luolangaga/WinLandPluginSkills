@@ -59,7 +59,7 @@ Copy-Item -Recurse "$env:TEMP\WinLandPluginSkills\winland-plugin-maker" "$env:US
 
 ```
 winland-plugin-maker/
-├── SKILL.md                     ← 全流程主文档：三条铁律 + 7 步陪跑流程
+├── SKILL.md                     ← 全流程主文档：四条铁律 + 7 步陪跑流程
 ├── references/
 │   ├── sdk-api.md               ← SDK 2.0 API 参考（含 1.x 旧写法对照）
 │   ├── publish.md               ← GitHub 登录 / 上传源码 / 投稿市场全流程

@@ -303,6 +303,27 @@ public sealed partial class MyView : UserControl, IMorphView
 2. 其它程序集：宿主目录里有同名 DLL → 用宿主那份；否则用插件目录里的
 3. 所以：WinAppSDK/WinUI 运行时不要随插件分发；**自己的依赖必须真的复制到插件目录**（`CopyLocalLockFileAssemblies` + 打包脚本过滤规则）
 
+4. **框架程序集的版本必须不高于宿主**：`Microsoft.Windows.SDK.NET`、`WinRT.Runtime` 这类投影只能由宿主提供（插件也不能把它们打进包），而 .NET **不允许向下绑定强命名程序集**。插件用比宿主新的 SDK 构建时，引用的投影版本高于宿主，加载直接失败：
+
+   ```
+   插件需要 Microsoft.Windows.SDK.NET 10.0.26100.86，宿主提供的是 10.0.26100.38：
+   插件构建用的 .NET / Windows SDK 比宿主新，请用与宿主相同或更旧的 SDK 重新构建插件
+   ```
+
+   正式版宿主由 CI 用 `.NET 10.0.x` 构建，所以插件项目根目录（与 `.csproj` 同级）必须有 `global.json` 把 SDK 钉在 .NET 10 —— 模板自带这一份，别删：
+
+   ```json
+   {
+     "sdk": {
+       "version": "10.0.200",
+       "rollForward": "latestFeature",
+       "allowPrerelease": false
+     }
+   }
+   ```
+
+   没有它时 `dotnet build` 会挑机器上最高的 SDK（装了 .NET 11 / 预览版就挑它），于是出现"本地能跑、装到正式版宿主上就加载失败" —— 本地宿主和插件都是同一个新 SDK 构建的，正式版宿主不是。自检：在项目目录里 `dotnet --version` 必须是 `10.x`。
+
 打包时**排除**这些（宿主自带或用不到）：
 `WinIsland.Core.dll`、`Microsoft.WinUI.dll`、`Microsoft.Windows.SDK.NET.dll`、`WinRT.Runtime.dll`、`WebView2Loader.dll`、`Microsoft.WindowsAppRuntime*`、`Microsoft.Graphics.*.dll`、`Microsoft.InteractiveExperiences.*.dll`、`Microsoft.*.Projection.dll`、`*.pdb`
 （`tools/pack-plugin.ps1` 和市场的 `submit-plugin.ps1` 会自动过滤；手动打包时自己注意）

@@ -18,7 +18,8 @@
 |------|------|------|
 | 「程序集里没有找到 IIslandPlugin 实现」 | 入口类不是 `public sealed`、是抽象类、缺公共无参构造、或没实现 `IIslandPlugin`/`IslandPluginBase` | 对照 `references/sdk-api.md` 第 3 节改 |
 | 「一个包里有多个 IIslandPlugin 实现」 | 引用了别的插件工程或残留了旧类 | 保证一个包只有一个实现类 |
-| 「缺少依赖程序集：xxx」 | 第三方依赖没复制到插件目录；或 `deps.json` 缺失 | 工程打开 `CopyLocalLockFileAssemblies`；确认 `xxx.dll` 和 `<入口>.deps.json` 都被拷进 `plugins\<id>\` |
+| 「缺少依赖程序集：xxx」 | 第三方依赖没复制到插件目录；或 `deps.json` 缺失；**或构建用的 SDK 比宿主新**（先看这一条：宿主 2.0.x 起会直接报出版本差） | 先在项目目录 `dotnet --version` 确认是 `10.x`（不是就补 `global.json`，见铁律 4）；再打开 `CopyLocalLockFileAssemblies`；确认 `xxx.dll` 和 `<入口>.deps.json` 都被拷进 `plugins\<id>\` |
+| 「插件需要 X a.b.c，宿主提供的是 X d.e.f」；或加载报 `FileNotFoundException`、静态构造报 `TypeInitializationException` | 插件构建用的 .NET SDK 比宿主新（正式版宿主由 CI 用 `.NET 10.0.x` 构建），引用的投影程序集（`Microsoft.Windows.SDK.NET` / `WinRT.Runtime`）版本高于宿主，而 .NET 不允许向下绑定强命名程序集 | 项目根目录（`.csproj` 同级）放 `global.json` 钉住 .NET 10（模板自带，别删）→ `dotnet --version` 确认变成 `10.x` → 重新 `dotnet build`。详见 `references/sdk-api.md` §12 |
 | 「插件针对 WinIsland.Core x.y 构建，与宿主不兼容」 | 用了 1.x 的 NuGet 包，或旧版编译的 dll | 用源码里的 `WinIsland.Core`（api_version 2）重新编译 |
 | 「检测到旧格式 DLL」 | 把 dll 散装在 `plugins\` 根目录了 | v2 只认 `plugins\<id>\ + plugin.json` 或 `.lwp` 包，重新打包 |
 | plugin.json 校验失败（红色错误状态） | `id` 格式/`version` 格式/`entry_dll` 不对 | 按提示里的字段说明改；`entry_dll` 只能是文件名、不能带路径、不能是 `WinIsland.Core.dll` |

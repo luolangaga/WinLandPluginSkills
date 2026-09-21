@@ -40,6 +40,29 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 网上能搜到的、旧教程里的 `IIslandModule`、`[IslandPlugin(...)]`、`IDynamicIslandApi`、`SetLiveContent`、根目录散装 DLL —— **全部是 1.x 的写法，在 2.0 已被删除**，照抄会导致插件加载失败。写代码前先读 `references/sdk-api.md`；任何不确定的 API，以本技能参考文档和宿主源码 `WinIsland.Core/` 为准。
 
+### 铁律 4：构建用的 .NET SDK 不能比宿主新，否则插件必定加载失败
+
+正式版宿主由官方 CI 用 **.NET 10.0.x** 构建，所以插件也必须钉在 .NET 10。
+
+**为什么**：`.csproj` 里没有 SDK 版本，`dotnet build` 会用**这台机器上最高的 SDK**。机器上装了 .NET 11 / 预览版就会用它，插件于是引用 `Microsoft.Windows.SDK.NET 10.0.26100.86`、`WinRT.Runtime 2.3.1.0`，而宿主只提供 `10.0.26100.38` / `2.2.0.0`。这类投影程序集**必须由宿主提供**（不能随插件分发，否则 WinRT 类型身份分裂），而 .NET **不允许向下绑定强命名程序集** —— 插件必定加载失败：报 `FileNotFoundException`；若发生在静态构造里还会被包成 `TypeInitializationException`，看起来像"缺依赖"，其实差的是版本。
+
+**怎么做**：新建插件项目时，项目根目录（与 `.csproj` 同级）必须有 `global.json` 钉住 .NET 10 —— 模板 `assets/plugin-template/` 已经带好这一份，复制过去**不要删、不要改**：
+
+```json
+{
+  "sdk": {
+    "version": "10.0.200",
+    "rollForward": "latestFeature",
+    "allowPrerelease": false
+  }
+}
+```
+
+- 插件放进 WinIsland 源码仓库的 `samples\` 下时，仓库根的 `global.json` 已经覆盖它，但项目里那份留着无害，**照样别删**。
+- 判定方法：在插件项目目录里跑 `dotnet --version`，必须是 `10.x`；是 `11.x` 或带 `-rc`/`-preview` 就说明钉的没生效。
+- 报错特征（宿主 2.0.x 起会直接说清版本差）：`插件需要 Microsoft.Windows.SDK.NET 10.0.26100.86，宿主提供的是 10.0.26100.38：插件构建用的 .NET / Windows SDK 比宿主新……`
+- 看到「缺少依赖程序集：xxx」**先别急着查依赖复制**，先确认 SDK 版本 —— 这是最常见的成因。细节见 `references/sdk-api.md` §12 与 `references/troubleshooting.md`。
+
 ## 全流程地图
 
 ```
@@ -77,11 +100,11 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 **先跑本技能的 `scripts/check-env.ps1`**（能确认源码路径就带上：`-WinIslandRepo "<WinIsland源码目录>"`），它会给出一张清单（.NET SDK / git / GitHub CLI / PowerShell / 源码），**再用大白话念给用户听**。然后缺什么补什么：
 
-1. **.NET SDK 10 或更新**（编译插件的"工具箱"，硬性要求）——缺失就**主动提出帮用户装**：
+1. **.NET SDK 10.x**（编译插件的"工具箱"，硬性要求）——缺失就**主动提出帮用户装**：
    - 先征得同意（装软件是改动用户电脑，要说清"装什么、干什么用"）
    - 首选你代跑 `winget install --id Microsoft.DotNet.SDK.10`（弹 UAC 时让用户点"是"；装完**重开终端**才能识别）
    - 没有 winget 或安装失败 → 让用户打开 `https://dotnet.microsoft.com/download/dotnet/10.0` 下载安装包双击安装
-   - 装完再跑一次 `dotnet --list-sdks` 验证，出现 `10.x` 及以上才继续
+   - 装完再跑一次 `dotnet --list-sdks` 验证，**装出了 `10.x` 才能继续**。注意这里是"有 10.x"，**不是"10 或更新"**：用户机器上有 11/预览版不算问题，别让人为了这个去卸 SDK —— 挡住它的是铁律 4 的项目级 `global.json`；但体检结果里出现更高的 SDK 时，**一定要提醒**：项目里那份 `global.json` 不能少。
 2. **WinIsland 源码仓库**（里面有 `WinIsland.Core` 文件夹，那就是插件 SDK）。直接问用户："你电脑上的 WinIsland 源码在哪个文件夹？"
    - 找不到时：告诉用户 SDK 2.0 目前**没有**发布到 NuGet 包站（NuGet 上的 1.x 不兼容、不能用），必须拿到源码；然后问用户源码可以从哪里获得（本地压缩包 / 某个仓库地址），别自己乱猜乱下载。
 3. **宿主位置（关键）**：插件最终要放进 WinIsland 的 `plugins\` 目录（与 `WinIsland.exe` 同一文件夹）。分两处：
@@ -98,12 +121,13 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 模板在**本技能文件夹**的 `assets/plugin-template/` 里。
 
 1. 建议把插件项目建在 `<WinIsland源码>\samples\<项目名>\`（模板默认按这个位置配好了相对路径，最省事）；放别处也行，只是要改路径。先问用户放哪。
-2. 把模板里的全部文件复制过去。
+2. 把模板里的全部文件复制过去 —— **连同 `global.json`**（它决定用哪个 SDK 构建，见铁律 4；漏了会在正式版宿主上加载失败）。
 3. 逐项改名（列成清单，改完让用户过一眼）：
    - `MyPlugin.cs` / `MyPluginView.cs` 里的类名、命名空间 `MyPlugin` → 新名字
    - `plugin.json`：`id`（kebab-case）、`name`（中文名）、`entry_dll`（改成 `<新类名>.dll`）、`author`、`description`、`homepage`、`tags`
    - `MyPlugin.csproj`：`RootNamespace`、`PluginTargetDir` 结尾的 `my-plugin` → 插件 id、`WinIslandPluginsDir` → **第 1 步找到的"用户平时用的 WinIsland"目录 + `\plugins`**（这样 `dotnet build` 会直接把插件装到用户平时用的那个 WinIsland 里，下一步实测最省事）
    - 项目不在 samples 下时：把 csproj 里 `WinIslandCoreProject` 改成 `WinIsland.Core.csproj` 的真实路径
+   - `global.json`：**保持原样**，不要改名、不要删（铁律 4 靠它把构建 SDK 钉在 .NET 10）
 
 ## 第 3 步：写代码
 
@@ -124,6 +148,8 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 ### 4.1 编译
 
 在插件项目目录跑 `dotnet build`。构建成功会自动把插件文件拷进 csproj 里配置的 `plugins\<id>\` 目录（`CopyToWinIsland` 目标）——第 2 步已经把它指向"用户平时用的 WinIsland"，所以编译完插件就已经装进那个软件里了。
+
+构建前顺手确认一次 `dotnet --version` 是 `10.x`（铁律 4）；不是的话先查项目里的 `global.json` 还在不在 —— 用错 SDK 构建出来的插件在正式版宿主上**一定**加载失败。
 
 ### 4.2 确认已装进用户实际使用的 WinIsland
 

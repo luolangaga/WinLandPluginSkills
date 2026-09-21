@@ -34,7 +34,9 @@ function Add-Result {
     })
 }
 
-# ---- 1) .NET SDK 10 或更新（编译插件的硬性要求）----
+# ---- 1) .NET SDK 10.x（编译插件的硬性要求）----
+# 装了比 10 更高的 SDK（例如 11 预览版）同样算"通过"，但插件项目必须带 global.json 把它钉在 .NET 10：
+# 否则 dotnet build 会挑最高的那个，插件引用的投影程序集版本高于宿主，加载时必定失败（见 SKILL.md 铁律 4）。
 $sdkOk = $false
 $sdkDetail = "未检测到 dotnet 命令"
 try {
@@ -42,18 +44,27 @@ try {
     if ($lines.Count -gt 0) {
         $versions = @($lines | ForEach-Object { ($_ -split ' ')[0] })
         $maxMajor = 0
+        $has10 = $false
         foreach ($v in $versions) {
             $major = 0
             [void][int]::TryParse(($v -split '\.')[0], [ref]$major)
             if ($major -gt $maxMajor) { $maxMajor = $major }
+            if ($major -eq 10) { $has10 = $true }
         }
         $sdkDetail = "已安装：" + ($versions -join "、")
-        if ($maxMajor -ge 10) { $sdkOk = $true }
-        else { $sdkDetail += "（版本太旧，需要 10 或更新）" }
+        if ($has10) {
+            $sdkOk = $true
+            if ($maxMajor -gt 10) {
+                $sdkDetail += "（还有更高的 SDK：插件项目必须带 global.json 钉住 .NET 10，否则会用它构建、插件在正式版宿主上加载失败 —— 见铁律 4）"
+            }
+        }
+        else {
+            $sdkDetail += "（没有 10.x，需要安装 .NET 10 SDK）"
+        }
     }
 }
 catch { }
-Add-Result ".NET SDK 10+" $sdkOk $sdkDetail "winget install --id Microsoft.DotNet.SDK.10  （装完重开终端；没有 winget 就用 https://dotnet.microsoft.com/download/dotnet/10.0 的安装包）"
+Add-Result ".NET SDK 10.x" $sdkOk $sdkDetail "winget install --id Microsoft.DotNet.SDK.10  （装完重开终端；没有 winget 就用 https://dotnet.microsoft.com/download/dotnet/10.0 的安装包）"
 
 # ---- 2) git（源码管理，投稿用得到）----
 $gitOk = $false
@@ -119,5 +130,5 @@ if ($missing.Count -eq 0) {
 }
 else {
     Write-Output ("有 {0} 项缺失/待确认：{1}" -f $missing.Count, (($missing | ForEach-Object { $_.检查项 }) -join "、"))
-    Write-Output "硬性要求只有「.NET SDK 10+」和「WinIsland 源码」；gh 等第 6 步要上传时再补也行。"
+    Write-Output "硬性要求只有「.NET SDK 10.x」和「WinIsland 源码」；gh 等第 6 步要上传时再补也行。"
 }
