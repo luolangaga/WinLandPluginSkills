@@ -11,6 +11,7 @@
 | 找不到 `WinIsland.Core` | 项目不在 samples 下，相对路径失效 | 改 csproj 里 `WinIslandCoreProject` 为 `WinIsland.Core.csproj` 的真实路径（绝对路径也行） |
 | 编译通过但 `plugins\<id>\` 里没有文件 | 拷贝目标路径不对 | 检查 csproj 的 `WinIslandPluginsDir` 指向真实的宿主目录；`dotnet build` 输出里看 CopyToWinIsland 是否执行 |
 | `dotnet build` 报文件被占用 | WinIsland 正在运行，dll 锁着 | 关掉 WinIsland 再 build，或先禁用该插件 |
+| 本地构建好好的，装到宿主上却报"版本比宿主新" | `global.json` 是按**当前目录**生效的：在项目目录之外用 `dotnet build <路径>` 调用不受它约束，会挑机器上最新的 SDK（构建日志里能看到 `sdk\11.x...\Sdks\Microsoft.NET.Sdk`） | 先 `cd` 进插件项目目录再 `dotnet build`；在项目目录里 `dotnet --version` 确认是 `10.x` |
 
 ## 插件加载阶段
 
@@ -32,14 +33,17 @@
 | 改了代码没生效 | 本地插件目录不热重载 | 插件管理 → 「重新加载」，或禁用→启用，或重启 WinIsland |
 | 「已忽略调用 xxx：插件当前状态为 已停用」 | 停用后定时器/网络回调还在跑 | 属于宿主的保护行为；检查自己的定时器/订阅是否在 `ShutdownAsync` 里收干净（用 `Context.CreateTimer` / `Context.Register` 让宿主自动管） |
 | 展开动画卡顿/元素闪现 | 元素在动画中才被加进/移出可视树；或用了 `Visibility = Collapsed` | 所有元素一开始就常驻可视树，隐藏用 `Height = 0 + Opacity = 0` |
-| 形态动画执行失败 / 日志报 `E_XAMLPARSEFAILED`、`Invalid attribute value Unknown for property Height` | 在**插件 XAML** 的树上用了 Storyboard 属性路径动画 | 改用逐帧属性赋值（参考 `samples/XamlPlugin`），或在代码里构建 UI 用 Storyboard |
+| **大岛变小之后卡死**：岛体收回了、插件元素卡在中间值、不再响应 hover；日志报 `COMException (0x800F1001): Invalid attribute value Unknown for property Height` | 形态动画用了 `Storyboard` 属性路径动画 —— 动态加载的插件程序集解析不出属性所属类型，异常在**动画 tick 里**抛出，调用点的 try/catch 拦不住，会冒到宿主的未处理异常处理器并打断状态机；失败几次后**插件被自动停用** | 改成逐帧直接赋值（`DispatcherQueueTimer` 每帧给 `Height`/`Opacity`/`FontSize` 赋值），见 `references/sdk-api.md` §6；**纯代码建的界面同样不能用 Storyboard**，模板 `MyPluginView.cs` 就是逐帧写法，照抄 |
+| 改了设置（城市/关键词…）直接点「立即刷新」，刷的还是旧值 | 设置只在 `LostFocus` 里保存，而按钮点击**先于**失焦发生 | 动作之前显式提交输入框的值（先 `CommitText(textBox)` 再刷新），见 `references/sdk-api.md` §15.1 |
+| 改完设置没刷新 / 日志里一条「城市变更」都没有（请求像被吞了） | 刷新用了「忙就 return」的单飞模式（`Interlocked.Exchange(_busy, 1) == 1`），并发时把后来的请求**静默丢弃** | 改成 `SemaphoreSlim(1,1)` 排队串行化，绝不丢弃；每次刷新带 `reason` 写日志，见 §15.2 |
+| 设置页的状态还停在上一座城市 / 上一次的数据 | 刷新结果没有回推给还开着的设置页 | 插件暴露快照事件，设置页订阅并在 `Unloaded` 退订，见 §15.1 |
 | XAML 视图报找不到 `InitializeComponent` | 动态加载的程序集不在 `resources.pri` 里 | 用 `PluginXaml.Load(this)` 代替 |
 | 大岛尺寸/布局被"拉宽拉高" | 宿主会统一展开尺寸（取所有内容最大值） | 视图用自适应布局（`*` 行列 + `Stretch`），不要写死尺寸 |
-| 聚光卡（超级展开）点不出来 / 一片空白 | ① `Content` 复用了岛视图那个 `UIElement`（每个窗口一棵树，必须新建视图）② `plugin.json` 的 `min_host_version` 没写 ≥ `2.1.0`，宿主太旧没有这个 API（日志里是 `MissingMethodException`） | 用独立视图 + 提高 `min_host_version`；详见 `references/sdk-api.md` §15 |
+| 聚光卡（超级展开）点不出来 / 一片空白 | ① `Content` 复用了岛视图那个 `UIElement`（每个窗口一棵树，必须新建视图）② `plugin.json` 的 `min_host_version` 没写 ≥ `2.1.0`，宿主太旧没有这个 API（日志里是 `MissingMethodException`） | 用独立视图 + 提高 `min_host_version`；详见 `references/sdk-api.md` §16 |
 | 聚光卡关不掉 | 卡片是模态的：点卡片外区域或按 `Esc` 收起 | 插件也可以自己调 `Context.Island.CloseSpotlight()` |
 | 关掉聚光卡后定时器还在跑 / 还在请求网络 | 宿主收起卡片时会把内容从可视树卸下，但不会替你停表 | 在视图 `Unloaded` 里停定时器、在 `OnClosed` 里取消网络请求 |
 | 岛体出现奇怪的底色/色块 | 视图根元素用了不透明背景 | 根元素保持透明，卡片/徽标用半透明白（如 `#33FFFFFF`）适配两种材质 |
-| 插件反复出错被自动停用 | 单次会话内未处理异常达到 5 次 | 看日志找异常源头；初始化必须 10 秒内完成 |
+| 插件反复出错被自动停用 | 单次会话内未处理异常达到 5 次（**动画 tick / 定时器回调里抛的异常同样计入**） | 看日志找异常源头；初始化必须 10 秒内完成 |
 | 帧率之类的数据读不到 / 显示 `--` | 部分系统数据需要管理员权限 | 以管理员身份运行 WinIsland（例如 ETW 读前台窗口帧率） |
 | 中文显示成乱码 | 源文件不是 UTF-8 | 把 .cs / .json 都保存为 UTF-8（含 BOM 更稳） |
 

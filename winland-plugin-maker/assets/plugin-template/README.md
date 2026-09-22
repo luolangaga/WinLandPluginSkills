@@ -1,22 +1,22 @@
 # 插件模板（复制后改这几处）
 
-这是一个能直接跑起来的 WinIsland 插件项目模板：小岛显示图标 + 名称，展开后显示状态和描述，带设置页和每秒刷新的定时器。
+这是一个能直接跑起来的 WinIsland 插件项目模板：小岛显示图标 + 名称，展开后显示状态和描述（**逐帧**变形动画），点击岛体弹出「超级展开」聚光卡，带设置页和每秒刷新的定时器。
 
 复制到目标文件夹后，按下表改名：
 
 | 位置 | 改什么 |
 |------|--------|
-| 文件名 / 类名 | `MyPlugin` → 你的插件名（如 `WeatherMini`），`MyPlugin.cs`、`MyPluginView.cs` 同步改 |
-| `MyPlugin.cs` / `MyPluginView.cs` | 命名空间 `MyPlugin` → 你的插件名 |
-| `plugin.json` | `id`（全小写+短横线）、`name`（中文名）、`entry_dll`（改成 `<类名>.dll`）、`author`、`description`、`icon_glyph`、`homepage`、`tags` |
+| 文件名 / 类名 | `MyPlugin` → 你的插件名（如 `WeatherMini`），`MyPlugin.cs`、`MyPluginView.cs`、`MyPluginSpotlightView.cs` 同步改 |
+| `MyPlugin*.cs` | 命名空间 `MyPlugin` → 你的插件名 |
+| `plugin.json` | `id`（全小写+短横线）、`name`（中文名）、`entry_dll`（改成 `<类名>.dll`）、`author`、`description`、`icon_glyph`、`homepage`、`tags`；`min_host_version` 保持 `2.1.0`（聚光卡需要） |
 | `MyPlugin.csproj` | `RootNamespace`；`PluginTargetDir` 结尾的 `my-plugin` → 插件 id；`WinIslandPluginsDir` → 你机器上宿主的 plugins 目录 |
 
 **项目放在 WinIsland 源码仓库的 `samples\<名字>\` 下时，`WinIslandCoreProject` 和 `WinIslandPluginsDir` 的默认相对路径开箱即用；放到别处就要把这两个路径改对。**
 
 ## 目录里的文件
 
-- `MyPlugin.cs` —— 插件入口（`IslandPluginBase`）：注册常驻内容、设置页、设置监听、定时器
-- `MyPluginView.cs` —— 岛上视图（`IMorphView`）：紧凑/展开两种形态 + 变形动画
+- `MyPlugin.cs` —— 插件入口（`IslandPluginBase`）：注册常驻内容、设置页（含"动作之前先提交设置值"的示范）、设置监听、定时器、点岛开聚光卡
+- `MyPluginView.cs` —— 岛上视图（`IMorphView`）：紧凑/展开两种形态 + **逐帧**变形动画（照抄，不要改成 Storyboard）
 - `MyPluginSpotlightView.cs` —— 「超级展开」聚光卡内容（点击岛体后居中弹出的大卡片；独立可视树）
 - `plugin.json` —— 插件清单（元数据唯一来源）
 - `.gitignore` —— 把 bin/obj 等构建产物排除在 git 之外

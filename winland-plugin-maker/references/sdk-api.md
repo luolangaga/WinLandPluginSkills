@@ -181,37 +181,127 @@ public interface IMorphView
 1. 用一个 `UserControl` 自己实现 `IMorphView`，`View => this`
 2. **所有元素常驻可视树**（紧凑态 + 展开态都用同一棵树）
 3. 紧凑态不显示的元素用 `Height = 0` + `Opacity = 0` 隐藏，**不要** `Visibility = Collapsed`（无法过渡）
-4. 缓动统一 `new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.45 }`
-5. 动画用 `Storyboard` + `Storyboard.SetTarget/SetTargetProperty`（代码构建的元素树可用）；`Height`/`Width`/`FontSize` 这类依赖属性需要 `EnableDependentAnimation = true`
+4. 缓动曲线与宿主一致：`BackEase(EaseOut, Amplitude: 0.45)`，公式见 6.2
+5. **形态动画必须逐帧直接给属性赋值，禁止用 `Storyboard`**（原因见 6.1）
+6. `AnimateTo*` 可能在**任意时刻**被调用（"展开到一半又收起"、视图被放进展开队列的卡片里）：进度要在视图里自己累计（`_progress`），从当前位置接着走，而不是跳回起点
+
+### 6.1 为什么禁止 Storyboard（会卡死）
+
+动态加载的插件程序集里，**属性路径**动画 `Storyboard.SetTargetProperty(anim, "Height")` 解析不出属性所属类型，会在**动画 tick 上**抛：
+
+```
+COMException (0x800F1001): Invalid attribute value Unknown for property Height
+```
+
+- 异常发生在 tick 里，**调用点的 `try/catch` 拦不住**，会冒到宿主的未处理异常处理器
+- 后果：岛体尺寸已经收回去了、插件的 `Height` 卡在中间值，整块内容错位且不再响应 hover —— 表现出来就是**"大岛变小之后卡死"**
+- 会计入宿主的未处理异常计数，累计 5 次**插件被自动停用**
+- 宿主内置视图（`WinIsland/Modules/Media`、`Battery`）能安全用 `Storyboard`，是因为它们在宿主程序集里、类型元数据可解析；插件侧不具备这个条件
+- **与"用 XAML 还是纯代码建 UI"无关**：XAML 树更容易触发，纯代码树同样不能用
+
+### 6.2 逐帧动画：核心写法（可直接用的完整版见模板 `MyPluginView.cs`）
 
 ```csharp
-public void AnimateToExpanded(TimeSpan duration)
-{
-    var storyboard = new Storyboard();
-    var easing = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.45 };
-    storyboard.Children.Add(Anim(_detail, "Height", _detail.Height, 46, duration, easing));
-    storyboard.Children.Add(Anim(_detail, "Opacity", _detail.Opacity, 1, duration, easing));
-    storyboard.Begin();
-}
+using Microsoft.UI.Dispatching;
 
-private static DoubleAnimation Anim(DependencyObject target, string property,
-    double from, double to, TimeSpan duration, EasingFunctionBase easing)
+public sealed class MyPluginView : UserControl, IMorphView
 {
-    var animation = new DoubleAnimation
+    private const double BackAmplitude = 0.45;          // 与宿主曲线一致
+    private const double CompactIconSize = 16;
+    private const double ExpandedIconSize = 22;
+    private const double ExpandedDetailHeight = 44;
+
+    private readonly FontIcon _icon;
+    private readonly StackPanel _detail;
+
+    private readonly DispatcherQueueTimer? _morphTimer;
+    private DateTimeOffset _morphStart;
+    private TimeSpan _morphDuration = TimeSpan.FromMilliseconds(333);
+    private double _morphFrom;
+    private double _morphTarget;
+    private double _progress;                            // 0 = 紧凑，1 = 展开；反转时从这里接着走
+
+    public MyPluginView(PluginManifest manifest)
     {
-        From = from,
-        To = to,
-        Duration = new Duration(duration),
-        EasingFunction = easing,
-        EnableDependentAnimation = true,
-    };
-    Storyboard.SetTarget(animation, target);
-    Storyboard.SetTargetProperty(animation, property);
-    return animation;
+        _icon = new FontIcon { Glyph = manifest.IconGlyph ?? "\uE8BD", FontSize = CompactIconSize, ... };
+        _detail = new StackPanel { Height = 0, Opacity = 0, Spacing = 4, ... };
+        // ... 组装元素树 ...
+
+        // 逐帧动画用的 UI 线程定时器；拿不到就退化成一帧切到终态，绝不留下中间值
+        _morphTimer = DispatcherQueue?.CreateTimer();
+        if (_morphTimer is not null)
+        {
+            _morphTimer.Interval = TimeSpan.FromMilliseconds(16);
+            _morphTimer.IsRepeating = true;
+            _morphTimer.Tick += (_, _) => OnMorphTick();
+        }
+
+        Unloaded += (_, _) => _morphTimer?.Stop();
+    }
+
+    public UIElement View => this;
+
+    public void AnimateToExpanded(TimeSpan duration) => StartMorph(1, duration);
+
+    public void AnimateToCompact(TimeSpan duration) => StartMorph(0, duration);
+
+    private void StartMorph(double target, TimeSpan duration)
+    {
+        _morphFrom = _progress;
+        _morphTarget = target;
+        _morphDuration = duration > TimeSpan.Zero ? duration : TimeSpan.FromMilliseconds(1);
+        _morphStart = DateTimeOffset.UtcNow;
+
+        if (_morphTimer is null)
+        {
+            ApplyMorph(target);
+            return;
+        }
+
+        _morphTimer.Start();
+    }
+
+    private void OnMorphTick()
+    {
+        var elapsed = (DateTimeOffset.UtcNow - _morphStart).TotalMilliseconds;
+        var t = Math.Clamp(elapsed / Math.Max(1, _morphDuration.TotalMilliseconds), 0, 1);
+
+        ApplyMorph(_morphFrom + (_morphTarget - _morphFrom) * BackEaseOut(t));
+
+        if (t >= 1)
+        {
+            _morphTimer?.Stop();
+            ApplyMorph(_morphTarget);       // 收尾锁定终态，避免残留中间值
+        }
+    }
+
+    /// <summary>BackEase(EaseOut, A) = 1 + (A+1)(t-1)³ + A(t-1)²，与 XAML 那条曲线等价。</summary>
+    private static double BackEaseOut(double t)
+    {
+        var d = t - 1;
+        return 1 + (BackAmplitude + 1) * d * d * d + BackAmplitude * d * d;
+    }
+
+    /// <summary>把 0~1 的进度铺到各元素上。BackEase 会让 progress 略微越过 0/1，记得夹住。</summary>
+    private void ApplyMorph(double progress)
+    {
+        _progress = progress;
+
+        _detail.Height = Math.Max(0, ExpandedDetailHeight * progress);   // 不能为负
+        _detail.Opacity = Math.Clamp(progress, 0, 1);
+
+        _icon.FontSize = CompactIconSize + (ExpandedIconSize - CompactIconSize) * progress;
+    }
 }
 ```
 
-> 没有灵感时，去抄宿主仓库里的生产级实现：`WinIsland/Modules/Battery/BatteryIslandView.xaml.cs`（Storyboard + BackEase 的完整 MorphView）。
+另外两条：
+
+- `Unloaded` 时把定时器停掉，别让它一直在后台跑。
+- 定时器 / 每帧回调里的异常**同样直接进宿主的未处理异常处理器**（同样是 5 次停用），能在回调里兜住的错误就自己兜住（例如取数失败只记日志）。
+
+> 参考实现（都在宿主源码仓库里）：`samples/WeatherIsland/WeatherIslandView.cs`（逐帧 + BackEase 0.45 的完整 MorphView）、`samples/XamlPlugin/Views/XamlPluginView.xaml.cs`（XAML 视图版）、宿主文档 `PLUGIN.md` §4。
+> `WinIsland/Modules/Battery/BatteryIslandView.xaml.cs` 是 `Storyboard` 版，**只能参考视觉效果，不要照抄进插件**。
 
 ## 7. 临时消息 / 临时内容 / 设置页
 
@@ -289,7 +379,7 @@ public sealed partial class MyView : UserControl, IMorphView
 约束：
 - XAML 文件与类同名，文件夹与命名空间一致（`MyPlugin.Views.MyView` ↔ `Views/MyView.xaml`）
 - XAML 里只用框架类型，别引用插件自己的自定义控件
-- **不要用 Storyboard 做形态动画**：属性路径动画在动态加载的 XBF 树上会报 `Invalid attribute value Unknown for property Height`（E_XAMLPARSEFAILED，会打断宿主状态机）。改用逐帧属性赋值——完整范本见 `samples/XamlPlugin/Views/XamlPluginView.xaml.cs`
+- **形态动画同样要遵守 6.1 的「逐帧赋值、禁止 Storyboard」**：这条与是否用 XAML 无关，XBF 树只是更容易触发的场景。逐帧写法见 6.2，XAML 版范本见 `samples/XamlPlugin/Views/XamlPluginView.xaml.cs`
 - 图片等资源用 `Context.PluginDirectory` 拼绝对路径，不要用 `ms-appx:`
 - 视图根元素保持透明背景
 
@@ -352,7 +442,135 @@ dotnet build          # 构建（配合 csproj 的 CopyToWinIsland 目标自动�
 | 根目录散装 `*.dll` | `plugins/<id>/` 目录或 `.lwp` 包 |
 | `luolan.winland.Core` NuGet 1.x | 不兼容；用源码里的 `WinIsland.Core`（api_version 2） |
 
-## 15. 超级展开（Spotlight 聚光卡）
+## 15. 设置项与刷新：两个"改了没反应"的坑
+
+设置页看起来最简单，却是"改了不生效"类 bug 的重灾区。下面两条是宿主样例（`samples/WeatherIsland`）踩过并修好的真实问题。
+
+### 15.1 设置值要在"动作发生前"提交，别只等 LostFocus
+
+只挂 `LostFocus` 保存设置是最常见的写法：
+
+```csharp
+_cityBox.LostFocus += (_, _) => SaveCity();   // 只在离开焦点时保存
+```
+
+问题：用户改完城市**直接点「立即刷新」**——按钮点击先发生，`LostFocus` 还没触发，于是拿**旧城市**去刷了。同理还有两个隐藏坑：键盘用户只按回车不点别处；`ComboBox` 在构建页面时会触发一次 `SelectionChanged`（会把默认值写回设置）。
+
+正确做法是把三个提交点都覆盖：
+
+```csharp
+// 1) 页面里带动作的按钮：先提交，再干活
+private async void OnRefreshClick(object sender, RoutedEventArgs e)
+{
+    CommitEditors();                 // ← 把输入框里还没保存的值写进设置
+    ...                              // 再做刷新
+}
+
+// 2) 控件自己的提交时机：失焦 + 回车（键盘用户）
+_cityBox.LostFocus += (_, _) => CommitEditors();
+_cityBox.KeyDown += (_, e) =>
+{
+    if (e.Key == Windows.System.VirtualKey.Enter) CommitEditors();
+};
+
+// 3) 页面初次填充时不要回写设置
+private bool _loading = true;        // 构造函数最后一行置 false
+private void CommitEditors()
+{
+    if (_loading) return;
+
+    var text = (_cityBox.Text ?? string.Empty).Trim();
+    if (string.Equals(text, _settings.Get("city", "北京"), StringComparison.Ordinal)) return;   // 值没变就别写
+    _settings.Set("city", text);
+}
+```
+
+- `Settings.Set` 会触发 `OnSettingsChanged`，**值没变就别写**，否则每次失焦都会白触发一次刷新。
+- 异步取数**每次都重新读设置**，不要用 `OnInitializeAsync` 时缓存的字段 —— 这样即使设置变更回调还没跑，动作用的也是新值。
+- 结果要回推给还开着的设置页，否则状态行停在上一座城市：
+
+```csharp
+// 插件侧（在 UI 线程触发）
+public event Action<WeatherSnapshot>? SnapshotApplied;
+...
+Context.RunOnUI(() =>
+{
+    _view.Apply(applied);
+
+    try { SnapshotApplied?.Invoke(applied); }                 // 监听者出错不能影响宿主
+    catch (Exception ex) { Log.Warn($"设置页状态同步失败（已忽略）：{ex.Message}"); }
+});
+
+// 设置页侧：订阅 + 页面卸载时退订（别让插件一直握着这个页面）
+_plugin.SnapshotApplied += OnSnapshotApplied;
+Unloaded += (_, _) => _plugin.SnapshotApplied -= OnSnapshotApplied;
+
+private void OnSnapshotApplied(WeatherSnapshot snapshot)
+{
+    // 回填输入框前先看焦点，别把用户正在输入的内容冲掉
+    if (snapshot.HasData && _cityBox.FocusState == FocusState.Unfocused)
+    {
+        _cityBox.Text = snapshot.Place;
+    }
+}
+```
+
+### 15.2 刷新请求要排队，不许"忙就丢弃"
+
+定时刷新 + 手动刷新 + 设置变更三处都会触发取数，**并发是常态**。"忙就直接 return"的单飞模式会**静默吞掉**后来的请求：
+
+```csharp
+// 错：并发时后来的请求被无声丢弃，日志里连一条记录都没有
+if (Interlocked.Exchange(ref _busy, 1) == 1) return;
+```
+
+典型事故：用户改完城市点「立即刷新」→ 手动刷新正握着锁 → 「城市变更」那次刷新被丢掉 → 界面停在旧城市，排查时日志里**一条城市变更都没有**。
+
+正确做法：同一时刻只跑一次，但后来的请求**排队等待、绝不丢弃**：
+
+```csharp
+private readonly SemaphoreSlim _refreshGate = new(1, 1);   // 串行化：排队而不是丢弃
+private int _refreshing;
+private bool _stopped;
+
+private async Task<WeatherSnapshot> RefreshAsync(string reason)
+{
+    if (_stopped) return _snapshot;
+
+    await _refreshGate.WaitAsync().ConfigureAwait(false);
+    Interlocked.Exchange(ref _refreshing, 1);
+    try
+    {
+        return await FetchOnceAsync(reason).ConfigureAwait(false);
+    }
+    catch (Exception ex)
+    {
+        Log.Error("取数出错（已忽略）", ex);      // 异步方法里的异常必须自己兜住
+        return _snapshot;
+    }
+    finally
+    {
+        Interlocked.Exchange(ref _refreshing, 0);
+        _refreshGate.Release();
+    }
+}
+
+private async Task<WeatherSnapshot> FetchOnceAsync(string reason)
+{
+    if (_stopped) return _snapshot;
+
+    var city = ReadCity();                        // ← 真正的取数入口重新读设置
+    Log.Info($"开始取数（{reason}，城市 {city}）");
+    ...
+}
+```
+
+- 每次刷新都带一个 `reason`（`首次加载` / `定时刷新` / `手动刷新` / `城市变更`）并写日志：出问题时一眼能看出是哪条路径没跑到。
+- 停用（`ShutdownAsync`）时把 `_stopped` 置 true 并在入口 return，避免停用后还在发请求（否则日志里会出现「已忽略调用」）。
+- 后台线程算完必须 `Context.RunOnUI(...)` 回到 UI 线程再碰控件。
+- 取数失败保留上一次的数据继续显示，比清空界面更友好。
+
+## 16. 超级展开（Spotlight 聚光卡）
 
 大岛装不下的信息**不要继续往岛里塞元素** —— 让点击打开「超级展开」：一张居中的大卡片从岛体位置
 **带倾角飞入并放大**，点卡片外区域或按 `Esc` 反向动画收回。**何时打开由插件决定**，卡片尺寸与内容也由插件决定。

@@ -11,6 +11,8 @@ namespace MyPlugin;
 /// </summary>
 public sealed class MyPlugin : IslandPluginBase
 {
+    private const string DefaultText = "已就绪";
+
     private MyPluginView _view = null!;
     private MyPluginSpotlightView? _spotlightView;
     private IslandLiveContent _content = null!;
@@ -44,6 +46,9 @@ public sealed class MyPlugin : IslandPluginBase
             SetContent(Settings.Get("enabled", true) ? _content : null);
         }));
 
+        // 设置页里改的显示文字实时生效
+        Context.Register(Context.OnSettingsChanged("text", () => RefreshNow("设置变更")));
+
         if (Settings.Get("enabled", true))
         {
             SetContent(_content);
@@ -64,7 +69,36 @@ public sealed class MyPlugin : IslandPluginBase
     private void OnTick()
     {
         _seconds++;
-        _view.SetStatus($"已运行 {_seconds} 秒");
+        RefreshNow("定时刷新");
+    }
+
+    /// <summary>
+    /// 刷新小岛内容。两个要点（细节见 references/sdk-api.md §15）：
+    ///   1. 动作之前先把输入框里尚未提交的值写进设置 —— 按钮点击早于 LostFocus；
+    ///   2. 每次刷新都重新读设置，不要用初始化时缓存的字段。
+    ///
+    /// 如果刷新要走网络（async），按 §15.2 用 SemaphoreSlim 排队串行化，
+    /// **不要**用「忙就 return」的单飞模式：那会把并发请求静默丢掉。
+    /// </summary>
+    private void RefreshNow(string reason)
+    {
+        var text = Settings.Get("text", DefaultText);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            text = $"已运行 {_seconds} 秒";
+        }
+
+        Log.Info($"刷新（{reason}）：{text}");
+        _view.SetStatus(text);
+    }
+
+    /// <summary>把输入框里的值写进设置。值没变就不写，避免多余的通知与刷新。</summary>
+    private void CommitText(TextBox box)
+    {
+        var text = (box.Text ?? string.Empty).Trim();
+        if (string.Equals(text, Settings.Get("text", DefaultText), StringComparison.Ordinal)) return;
+
+        Settings.Set("text", text);   // 会触发 OnSettingsChanged("text") → RefreshNow("设置变更")
     }
 
     /// <summary>
@@ -105,6 +139,37 @@ public sealed class MyPlugin : IslandPluginBase
         {
             Style = (Style)Application.Current.Resources["SettingsCardStyle"],
             Child = toggle,
+        });
+
+        // 文本设置项：三个提交点都要覆盖，别只等 LostFocus（见 references/sdk-api.md §15.1）
+        var textBox = new TextBox
+        {
+            Header = "展开后显示的文字",
+            Text = Settings.Get("text", DefaultText),
+            PlaceholderText = $"留空则显示运行时长，默认「{DefaultText}」",
+            MinWidth = 280,
+        };
+        textBox.LostFocus += (_, _) => CommitText(textBox);
+        textBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == Windows.System.VirtualKey.Enter) CommitText(textBox);
+        };
+
+        var refreshButton = new Button { Content = "立即刷新" };
+        refreshButton.Click += (_, _) =>
+        {
+            // 动作之前先提交：否则「改完直接点按钮」用的还是旧值（按钮点击早于 LostFocus）
+            CommitText(textBox);
+            RefreshNow("手动刷新");
+        };
+
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        actions.Children.Add(refreshButton);
+
+        panel.Children.Add(new Border
+        {
+            Style = (Style)Application.Current.Resources["SettingsCardStyle"],
+            Child = new StackPanel { Spacing = 8, Children = { textBox, actions } },
         });
 
         var testButton = new Button { Content = "发一条测试消息" };

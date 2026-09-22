@@ -7,7 +7,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 把「我想给灵动岛做个插件」从零一路带到「上架社区插件市场」。整个过程中你是**陪跑员 + 执行者**：用户可能完全不懂编程，所以每一步都要做到——先说说要干什么 → 给出命令或操作 → 告诉用户会看到什么 → 等用户反馈 → 再走下一步。
 
-## 三条铁律（不可违反）
+## 五条铁律（不可违反）
 
 ### 铁律 1：任何"上传到网上"的动作之前，必须先问用户
 
@@ -60,8 +60,18 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 - 插件放进 WinIsland 源码仓库的 `samples\` 下时，仓库根的 `global.json` 已经覆盖它，但项目里那份留着无害，**照样别删**。
 - 判定方法：在插件项目目录里跑 `dotnet --version`，必须是 `10.x`；是 `11.x` 或带 `-rc`/`-preview` 就说明钉的没生效。
+- **必须在插件项目目录里跑构建**：`global.json` 是按**你运行 `dotnet` 时的当前目录**往上找的，跟 `.csproj` 放在哪儿无关。在别处（仓库根、桌面…）用 `dotnet build <路径>` 调用，等于没有 `global.json` —— 会直接挑机器上最新的 SDK（实测：从别的目录构建时，构建日志里出现 `sdk\11.0.100-rc...\Sdks\Microsoft.NET.Sdk`，这正是"本地能跑、装到正式版宿主就加载失败"的成因）。所以：**先 `cd` 进插件目录，再 `dotnet build`**。
 - 报错特征（宿主 2.0.x 起会直接说清版本差）：`插件需要 Microsoft.Windows.SDK.NET 10.0.26100.86，宿主提供的是 10.0.26100.38：插件构建用的 .NET / Windows SDK 比宿主新……`
 - 看到「缺少依赖程序集：xxx」**先别急着查依赖复制**，先确认 SDK 版本 —— 这是最常见的成因。细节见 `references/sdk-api.md` §12 与 `references/troubleshooting.md`。
+
+### 铁律 5：形态动画只能逐帧赋值，禁止用 Storyboard
+
+插件的形态动画**不能用 `Storyboard`**：属性路径动画（`Storyboard.SetTargetProperty(anim, "Height")`）在动态加载的插件程序集里解析不出类型信息，会在**动画 tick 上**抛 `COMException (0x800F1001): Invalid attribute value Unknown for property Height`。这个异常发生在 tick 里，**调用点的 try/catch 拦不住**，会冒到宿主的未处理异常处理器并打断状态机 —— 岛体尺寸已经收回了、插件元素却卡在中间值、不再响应 hover（表现出来就是**"大岛变小之后卡死"**），累计几次异常还会让插件被自动停用。
+
+- 正确写法：`DispatcherQueueTimer`（16ms）+ 每帧直接给 `Height`/`Opacity`/`FontSize` 赋值，缓动与宿主一致（`BackEase(EaseOut, 0.45)` 的公式）。模板 `assets/plugin-template/MyPluginView.cs` 已经是这个写法，**照抄，不要"优化"成 Storyboard**。
+- **纯代码自绘的界面同样适用**，不只是 XAML 视图。宿主内置模块（Media/Battery）能用 Storyboard，是因为它们在宿主程序集里、类型元数据可解析 —— 插件侧没有这个条件。
+- 定时器 / 每帧回调里抛的异常同样计入宿主未处理异常计数：能兜住的错误（取数失败之类）自己 `try/catch` 记日志。
+- 细节与完整代码：`references/sdk-api.md` §6；现象对照：`references/troubleshooting.md`。
 
 ## 全流程地图
 
@@ -135,8 +145,10 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 - 插件类继承 `IslandPluginBase`，视图实现 `IMorphView`，设置页是普通 `UserControl`/控件树
 - 常驻内容用 `Context.Island.SetContent(...)` 注册；不要自己去动窗口尺寸
-- 变形动画：所有元素常驻可视树；隐藏用 `Height = 0 + Opacity = 0`，**不要**用 `Visibility = Collapsed`；缓动用 `BackEase { EasingMode = EaseOut, Amplitude = 0.45 }` 与宿主保持一致
+- 变形动画：所有元素常驻可视树；隐藏用 `Height = 0 + Opacity = 0`，**不要**用 `Visibility = Collapsed`；**必须逐帧赋值（禁止 Storyboard，见铁律 5）**，缓动与宿主一致：`BackEase(EaseOut, 0.45)`
 - 设置项用 `Settings.Get/Set`（键会自动加 `<id>.` 前缀，写短名即可）
+- 设置页里的输入框/下拉框：**动作按钮（「立即刷新」之类）里要先提交输入框的值，再干活**（按钮点击早于 LostFocus，否则用的是旧值）；失焦、回车也要提交；值没变就别写设置
+- 刷新要"同一时刻只跑一次"时，用 `SemaphoreSlim(1,1)` 排队串行化，**绝不**用"忙就 return"把并发请求静默丢掉（那会让"改完设置点刷新"悄无声息地失败）—— 这两条的完整写法见 `references/sdk-api.md` §15
 - 需要定时刷新用 `Context.CreateTimer(...)`（停用时自动停止）
 - 后台线程算完数据要更新界面，用 `Context.RunOnUI(...)`
 - 视图根元素**保持透明背景**（岛体材质由宿主绘制，自绘不透明底色会在切换风格时露馅）
@@ -151,13 +163,13 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 * 大卡片视图必须是**独立于岛视图的另一个控件实例**（每个窗口一棵树，共用同一个 `UIElement` 会白屏）。
 * 定时器在视图 `Loaded` 里起、`Unloaded` 里停；网络请求之类的收尾放 `OnClosed`。
 * `plugin.json` 的 `min_host_version` 要写 `"2.1.0"`（旧宿主没有这个 API）。
-* 完整写法、四条细则与坑：`references/sdk-api.md` §15。
+* 完整写法、四条细则与坑：`references/sdk-api.md` §16。
 
 ## 第 4 步：编译 + 装进用户平时用的 WinIsland 里实测
 
 ### 4.1 编译
 
-在插件项目目录跑 `dotnet build`。构建成功会自动把插件文件拷进 csproj 里配置的 `plugins\<id>\` 目录（`CopyToWinIsland` 目标）——第 2 步已经把它指向"用户平时用的 WinIsland"，所以编译完插件就已经装进那个软件里了。
+在插件项目目录跑 `dotnet build`（**先 `cd` 进去再跑**：`global.json` 只按当前目录生效，在别处用 `dotnet build <路径>` 会挑到机器上最新的 SDK，见铁律 4）。构建成功会自动把插件文件拷进 csproj 里配置的 `plugins\<id>\` 目录（`CopyToWinIsland` 目标）——第 2 步已经把它指向"用户平时用的 WinIsland"，所以编译完插件就已经装进那个软件里了。
 
 构建前顺手确认一次 `dotnet --version` 是 `10.x`（铁律 4）；不是的话先查项目里的 `global.json` 还在不在 —— 用错 SDK 构建出来的插件在正式版宿主上**一定**加载失败。
 
@@ -181,17 +193,21 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
    - 列表里没有插件：确认 `plugins\<id>\` 里有 dll 和 plugin.json，然后关掉设置窗口重开。
 2. 让用户按顺序验证并逐条反馈：
    - 小岛上正常显示
-   - 鼠标悬浮岛体，展开/收起动画流畅
+   - 鼠标悬浮岛体，展开/收起动画流畅；**来回快速 hover，动画一直跟手、不会卡在中间**
    - 展开后内容完整、没有错位/裁切
    - **点击岛体 → 弹出超级大卡片（带倾角飞入、居中放大）；点卡片外区域或按 Esc 能收起、岛体恢复正常**
    - 设置页能打开、开关/按钮有效
+   - **改完输入框，不点别处、直接点「立即刷新」：要按新值刷**（刷的是旧值 = LostFocus 那个坑，见 §15.1）
+   - **改了设置马上点刷新 / 连续快点两次刷新：两次都要真的跑**（日志里能看到两条；只有一条就是请求被"单飞"吞了，见 §15.2）
 3. 请用户明确回答："实际效果正常吗？哪里不对？"——**用户点头才算测试通过**；有问题的部分，看日志、按 `references/troubleshooting.md` 排查，改完重新装一遍再测。
 
 ### 4.4 出问题看日志
 
 `%LocalAppData%\WinIsland\logs\plugin.<id>.log`（插件管理卡片上也有「查看日志」）。报错先自己读 `references/troubleshooting.md` 排查，再把结论翻译成大白话告诉用户。
 
-**测试通过的判定**：小岛显示正常 → 展开/收起动画流畅 → 大岛内容正常 → 设置页能开、开关生效 → 日志没有 Error → **用户亲口确认"没问题"**。
+看到 `0x800F1001` / `Invalid attribute value Unknown for property Height` 就是形态动画用了 Storyboard（铁律 5）；看到「已忽略调用」说明停用后还有定时器/回调没收干净。
+
+**测试通过的判定**：小岛显示正常 → 展开/收起动画流畅 → 大岛内容正常 → 设置页能开、开关都生效、改了设置马上能看到变化 → 日志没有 Error → **用户亲口确认"没问题"**。
 
 顺手记一下测试用的宿主版本号（`WinIsland.exe` 的版本，或让用户看设置里的版本），之后投稿 PR 要写。
 

@@ -1,7 +1,7 @@
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 using WinIsland.Core;
 
 namespace MyPlugin;
@@ -10,10 +10,11 @@ namespace MyPlugin;
 /// 岛上的视图：同一棵可视树同时承载「小岛（紧凑态）」和「大岛（展开态）」，
 /// 宿主切换形态时调用 AnimateToExpanded / AnimateToCompact 让内部元素同步变形。
 ///
-/// 三条要点：
+/// 四条要点：
 ///   1. 所有元素（含只在展开态出现的）一开始就常驻可视树；
 ///   2. 隐藏用 Height = 0 + Opacity = 0，不要用 Visibility = Collapsed（无法过渡）；
-///   3. 缓动与宿主保持一致的 BackEase(EaseOut, 0.45)。
+///   3. 形态动画逐帧直接赋值，**不要用 Storyboard**（见 StartMorph 的注释）；
+///   4. 缓动与宿主保持一致：BackEase(EaseOut, Amplitude: 0.45)。
 /// </summary>
 public sealed class MyPluginView : UserControl, IMorphView
 {
@@ -23,10 +24,22 @@ public sealed class MyPluginView : UserControl, IMorphView
     private const double ExpandedTitleSize = 15;
     private const double ExpandedDetailHeight = 44;
 
+    /// <summary>与宿主内置视图同一条 BackEase 曲线的幅度，手感保持一致。</summary>
+    private const double BackAmplitude = 0.45;
+
     private readonly FontIcon _icon;
     private readonly TextBlock _title;
     private readonly TextBlock _status;
     private readonly StackPanel _detail;
+
+    private readonly DispatcherQueueTimer? _morphTimer;
+    private DateTimeOffset _morphStart;
+    private TimeSpan _morphDuration = TimeSpan.FromMilliseconds(333);
+    private double _morphFrom;
+    private double _morphTarget;
+
+    /// <summary>当前形态进度：0 = 紧凑态，1 = 展开态。反转动画时从这里接着走。</summary>
+    private double _progress;
 
     public MyPluginView(PluginManifest manifest)
     {
@@ -83,47 +96,91 @@ public sealed class MyPluginView : UserControl, IMorphView
         root.Children.Add(_detail);
 
         Content = root;
+
+        // 逐帧动画用的 UI 线程定时器；拿不到就退化成「直接切终态」，绝不留下中间值
+        _morphTimer = DispatcherQueue?.CreateTimer();
+        if (_morphTimer is not null)
+        {
+            _morphTimer.Interval = TimeSpan.FromMilliseconds(16);
+            _morphTimer.IsRepeating = true;
+            _morphTimer.Tick += (_, _) => OnMorphTick();
+        }
+
+        Unloaded += (_, _) => _morphTimer?.Stop();
     }
 
     public UIElement View => this;
 
-    /// <summary>更新展开态里的状态文字（插件每秒调用一次）。</summary>
+    /// <summary>更新展开态里的状态文字（插件定时器调用）。</summary>
     public void SetStatus(string text) => _status.Text = text;
 
-    public void AnimateToExpanded(TimeSpan duration) => AnimateTo(expanded: true, duration);
+    public void AnimateToExpanded(TimeSpan duration) => StartMorph(expanded: true, duration);
 
-    public void AnimateToCompact(TimeSpan duration) => AnimateTo(expanded: false, duration);
+    public void AnimateToCompact(TimeSpan duration) => StartMorph(expanded: false, duration);
 
-    private void AnimateTo(bool expanded, TimeSpan duration)
+    /// <summary>
+    /// 形态动画走「逐帧属性赋值」，刻意不用 Storyboard。
+    ///
+    /// 原因：动态加载的插件程序集里，属性路径动画（Storyboard.SetTargetProperty 的 "Height"）
+    /// 解析不出类型信息，会在动画 tick 上抛
+    /// COMException (0x800F1001): Invalid attribute value Unknown for property Height。
+    /// 这个异常发生在 tick 里，调用点的 try/catch 拦不住，会冒到宿主的未处理异常处理器，
+    /// 结果是岛体尺寸收回去了、插件的 Height 却卡在中间值，整块内容错位且不再响应 hover。
+    /// 宿主内置视图能安全使用 Storyboard，是因为它们在宿主程序集里；插件侧必须逐帧赋值。
+    /// </summary>
+    private void StartMorph(bool expanded, TimeSpan duration)
     {
-        var easing = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.45 };
-        var storyboard = new Storyboard();
+        var target = expanded ? 1d : 0d;
 
-        storyboard.Children.Add(Anim(_icon, "FontSize", _icon.FontSize,
-            expanded ? ExpandedIconSize : CompactIconSize, duration, easing));
-        storyboard.Children.Add(Anim(_title, "FontSize", _title.FontSize,
-            expanded ? ExpandedTitleSize : CompactTitleSize, duration, easing));
-        storyboard.Children.Add(Anim(_detail, "Height", _detail.Height,
-            expanded ? ExpandedDetailHeight : 0, duration, easing));
-        storyboard.Children.Add(Anim(_detail, "Opacity", _detail.Opacity,
-            expanded ? 1 : 0, duration, easing));
+        _morphFrom = _progress;
+        _morphTarget = target;
+        _morphDuration = duration > TimeSpan.Zero ? duration : TimeSpan.FromMilliseconds(1);
+        _morphStart = DateTimeOffset.UtcNow;
 
-        storyboard.Begin();
+        if (_morphTimer is null)
+        {
+            ApplyMorph(target);
+            return;
+        }
+
+        _morphTimer.Start();
     }
 
-    private static DoubleAnimation Anim(DependencyObject target, string property,
-        double from, double to, TimeSpan duration, EasingFunctionBase easing)
+    private void OnMorphTick()
     {
-        var animation = new DoubleAnimation
+        var elapsed = (DateTimeOffset.UtcNow - _morphStart).TotalMilliseconds;
+        var durationMs = Math.Max(1, _morphDuration.TotalMilliseconds);
+        var t = Math.Clamp(elapsed / durationMs, 0, 1);
+
+        ApplyMorph(_morphFrom + (_morphTarget - _morphFrom) * BackEaseOut(t));
+
+        if (t >= 1)
         {
-            From = from,
-            To = to,
-            Duration = new Duration(duration),
-            EasingFunction = easing,
-            EnableDependentAnimation = true,   // Height/Width/FontSize 这类依赖属性需要打开
-        };
-        Storyboard.SetTarget(animation, target);
-        Storyboard.SetTargetProperty(animation, property);
-        return animation;
+            _morphTimer?.Stop();
+            ApplyMorph(_morphTarget);   // 收尾时锁定终态，避免残留中间值
+        }
+    }
+
+    /// <summary>BackEase(EaseOut, A) = 1 + (A+1)(t-1)³ + A(t-1)²，与 XAML 那条曲线等价。</summary>
+    private static double BackEaseOut(double t)
+    {
+        var d = t - 1;
+        return 1 + (BackAmplitude + 1) * d * d * d + BackAmplitude * d * d;
+    }
+
+    /// <summary>把 0~1 的形态进度铺到各元素上。progress 会因 BackEase 略微越过 0/1。</summary>
+    private void ApplyMorph(double progress)
+    {
+        _progress = progress;
+
+        // Height 不能为负（BackEase 在终点附近会把曲线推到目标值以下）
+        _detail.Height = Math.Max(0, ExpandedDetailHeight * progress);
+        _detail.Opacity = Math.Clamp(progress, 0, 1);
+
+        var iconSize = CompactIconSize + (ExpandedIconSize - CompactIconSize) * progress;
+        _icon.FontSize = iconSize;
+
+        var titleSize = CompactTitleSize + (ExpandedTitleSize - CompactTitleSize) * progress;
+        _title.FontSize = titleSize;
     }
 }
