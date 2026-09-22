@@ -351,3 +351,54 @@ dotnet build          # 构建（配合 csproj 的 CopyToWinIsland 目标自动�
 | `Api.Dispatcher.CreateTimer()` | `Context.CreateTimer(...)`（自动随停用释放） |
 | 根目录散装 `*.dll` | `plugins/<id>/` 目录或 `.lwp` 包 |
 | `luolan.winland.Core` NuGet 1.x | 不兼容；用源码里的 `WinIsland.Core`（api_version 2） |
+
+## 15. 超级展开（Spotlight 聚光卡）
+
+大岛装不下的信息**不要继续往岛里塞元素** —— 让点击打开「超级展开」：一张居中的大卡片从岛体位置
+**带倾角飞入并放大**，点卡片外区域或按 `Esc` 反向动画收回。**何时打开由插件决定**，卡片尺寸与内容也由插件决定。
+
+```csharp
+private MySpotlightView? _detail;
+
+private void OpenDetail()
+{
+    _detail ??= new MySpotlightView();                 // 必须是独立可视树（见下面的坑）
+    Context.Island.OpenSpotlight(new IslandSpotlight
+    {
+        Content = _detail,
+        Size = new Windows.Foundation.Size(720, 460),   // 期望尺寸（DIP）
+        OnClosed = () => _detail?.OnHostClosed(),
+    });
+}
+
+// 想自己收起（比如数据源没了）：Context.Island.CloseSpotlight();
+```
+
+卡片视图就是普通控件树（`UserControl` 或代码构建都行），**不需要实现 `IMorphView`**：飞入飞回、遮罩、圆角、层级
+全由宿主负责；视图只管「最终形态长什么样」，并自己管好定时器：
+
+```csharp
+public sealed class MySpotlightView : UserControl
+{
+    public MySpotlightView()
+    {
+        Loaded += (_, _) => _timer.Start();      // 宿主把内容挂上可视树时
+        Unloaded += (_, _) => _timer.Stop();     // 宿主收起卡片、把内容卸下时
+    }
+
+    public void OnHostClosed() { /* 取消网络请求之类的收尾 */ }
+}
+```
+
+| 成员 | 说明 |
+|------|------|
+| `Content` | 卡片内容。**必须是独立于岛视图的另一棵树**：每个窗口一棵树，把岛视图那个 `UIElement` 传进来会白屏或抛异常 |
+| `Size` | 期望尺寸（DIP）。宿主居中摆放并夹到显示器工作区 92% 以内，请用自适应布局、别假设精确尺寸 |
+| `OnClosed` | 关闭回调（点卡片外 / `Esc` / 自己调 `CloseSpotlight` / 插件被停用 / 被别的插件替换），宿主已做异常保护 |
+
+四条硬性规则：
+
+1. **需要展示更多信息就用聚光卡**，不要在岛里继续塞元素（岛体尺寸是宿主统一管的，塞多了会把所有插件的展开观感一起拖垮）。
+2. **点击岛体 = 打开聚光卡**（在 `OnTap` 里调 `OpenSpotlight`）；不要再用点击去做「跳到别的应用」这类事 —— 那是聚光卡内部按钮该干的活。宿主会识别交互控件：点在按钮/滑块上不会触发 `OnTap`，但你**自绘的可拖动控件**（比如进度条）要在自己的 `Tapped` 里写 `e.Handled = true`，否则拖一下就会顺带弹出聚光卡。
+3. **同一时刻只有一张卡**：别的插件再开就替换（你会先收到 `OnClosed`）；插件停用/卸载时宿主自动收起，不用自己清理。
+4. `plugin.json` 的 `min_host_version` 写 `"2.1.0"`（旧宿主没有这些 API，调用会抛 `MissingMethodException` 并被记成插件异常）；`api_version` 仍然是 `2`。

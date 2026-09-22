@@ -12,6 +12,7 @@ namespace MyPlugin;
 public sealed class MyPlugin : IslandPluginBase
 {
     private MyPluginView _view = null!;
+    private MyPluginSpotlightView? _spotlightView;
     private IslandLiveContent _content = null!;
     private int _seconds;
 
@@ -31,6 +32,7 @@ public sealed class MyPlugin : IslandPluginBase
             MorphView = _view,
             CompactSize = new Windows.Foundation.Size(240, 40),
             ExpandedSize = new Windows.Foundation.Size(400, 120),
+            OnTap = OpenSpotlight,      // 点击岛体 = 打开「超级展开」聚光卡
         };
 
         Context.Island.AddSettingsPage(new SettingsPageDescriptor(
@@ -63,6 +65,23 @@ public sealed class MyPlugin : IslandPluginBase
     {
         _seconds++;
         _view.SetStatus($"已运行 {_seconds} 秒");
+    }
+
+    /// <summary>
+    /// 打开「超级展开」聚光卡：卡片尺寸、内容、何时打开都由插件决定；
+    /// 飞入/飞回动画、遮罩、点卡片外与 Esc 收起由宿主负责。
+    /// 视图必须独立于岛视图（每个窗口一棵树），实例可以复用。
+    /// </summary>
+    private void OpenSpotlight()
+    {
+        _spotlightView ??= new MyPluginSpotlightView(Manifest);
+
+        Context.Island.OpenSpotlight(new IslandSpotlight
+        {
+            Content = _spotlightView,
+            Size = new Windows.Foundation.Size(720, 460),   // 期望尺寸（DIP），宿主会夹到工作区内
+            OnClosed = () => _spotlightView?.OnHostClosed(),
+        });
     }
 
     /// <summary>设置页工厂：每次用户点进页面都会调用一次，必须返回新实例。</summary>

@@ -17,6 +17,7 @@
 
 - `MyPlugin.cs` —— 插件入口（`IslandPluginBase`）：注册常驻内容、设置页、设置监听、定时器
 - `MyPluginView.cs` —— 岛上视图（`IMorphView`）：紧凑/展开两种形态 + 变形动画
+- `MyPluginSpotlightView.cs` —— 「超级展开」聚光卡内容（点击岛体后居中弹出的大卡片；独立可视树）
 - `plugin.json` —— 插件清单（元数据唯一来源）
 - `.gitignore` —— 把 bin/obj 等构建产物排除在 git 之外
 

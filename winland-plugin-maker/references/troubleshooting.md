@@ -35,6 +35,9 @@
 | 形态动画执行失败 / 日志报 `E_XAMLPARSEFAILED`、`Invalid attribute value Unknown for property Height` | 在**插件 XAML** 的树上用了 Storyboard 属性路径动画 | 改用逐帧属性赋值（参考 `samples/XamlPlugin`），或在代码里构建 UI 用 Storyboard |
 | XAML 视图报找不到 `InitializeComponent` | 动态加载的程序集不在 `resources.pri` 里 | 用 `PluginXaml.Load(this)` 代替 |
 | 大岛尺寸/布局被"拉宽拉高" | 宿主会统一展开尺寸（取所有内容最大值） | 视图用自适应布局（`*` 行列 + `Stretch`），不要写死尺寸 |
+| 聚光卡（超级展开）点不出来 / 一片空白 | ① `Content` 复用了岛视图那个 `UIElement`（每个窗口一棵树，必须新建视图）② `plugin.json` 的 `min_host_version` 没写 ≥ `2.1.0`，宿主太旧没有这个 API（日志里是 `MissingMethodException`） | 用独立视图 + 提高 `min_host_version`；详见 `references/sdk-api.md` §15 |
+| 聚光卡关不掉 | 卡片是模态的：点卡片外区域或按 `Esc` 收起 | 插件也可以自己调 `Context.Island.CloseSpotlight()` |
+| 关掉聚光卡后定时器还在跑 / 还在请求网络 | 宿主收起卡片时会把内容从可视树卸下，但不会替你停表 | 在视图 `Unloaded` 里停定时器、在 `OnClosed` 里取消网络请求 |
 | 岛体出现奇怪的底色/色块 | 视图根元素用了不透明背景 | 根元素保持透明，卡片/徽标用半透明白（如 `#33FFFFFF`）适配两种材质 |
 | 插件反复出错被自动停用 | 单次会话内未处理异常达到 5 次 | 看日志找异常源头；初始化必须 10 秒内完成 |
 | 帧率之类的数据读不到 / 显示 `--` | 部分系统数据需要管理员权限 | 以管理员身份运行 WinIsland（例如 ETW 读前台窗口帧率） |
