@@ -10,13 +10,14 @@
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="luolan.winland.Core" Version="2.2.0" PrivateAssets="all" ExcludeAssets="runtime" />
+  <PackageReference Include="luolan.winland.Core" Version="2.2.1" PrivateAssets="all" ExcludeAssets="runtime" />
 </ItemGroup>
 ```
 
 或者在插件项目目录里跑 `dotnet add package luolan.winland.Core`（不写 `--version` 就装最新版）。
 
-- **版本号 = 宿主 API 版本**：`2.2.0` = 基础能力 + 聚光卡（§16）+ 文件投放（§17）。用到 2.1 / 2.2 的增量 API 时，`plugin.json` 的 `min_host_version` 要跟着提到 `"2.1.0"` / `"2.2.0"`。
+- **版本号怎么对**：SDK 包的**主次版本号 = 宿主 API 版本** —— `2.2.x` = 基础能力 + 聚光卡（§16）+ 文件投放（§17），补丁位（如 `2.2.0` → `2.2.1`）只是 SDK 包本身的修正，不引入新 API。当前最新 `2.2.1`。
+- 用到 2.1 / 2.2 的增量 API 时，`plugin.json` 的 `min_host_version` 要跟着提到 `"2.1.0"` / `"2.2.0"`（**注意：这里写的是宿主版本，跟 SDK 包的补丁号无关**）。
 - `ExcludeAssets="runtime"` **是必须的**：`WinIsland.Core.dll` 由宿主提供，不能进插件包（市场 CI 会拒绝）。
 - 插件 TFM 必须是 `net10.0-windows10.0.26100.0`（包只提供这个目标框架）。
 - **没有源码也能做插件**。只有「想跟着宿主源码一起改 SDK」或「需要源码构建的宿主调试副本」时才需要源码仓库，那时把上面那行换成 `ProjectReference`：
