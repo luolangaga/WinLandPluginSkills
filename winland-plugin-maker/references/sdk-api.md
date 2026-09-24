@@ -6,7 +6,20 @@
 
 ## 1. 工程怎么引用 SDK
 
-SDK 2.0 目前以源码形式提供（`WinIsland.Core` 项目）。推荐把插件项目放在 WinIsland 源码仓库的 `samples\` 下，用 `ProjectReference`：
+**从 NuGet 装**（推荐，插件项目**不需要 WinIsland 源码**）：
+
+```xml
+<ItemGroup>
+  <PackageReference Include="luolan.winland.Core" Version="2.2.0" PrivateAssets="all" ExcludeAssets="runtime" />
+</ItemGroup>
+```
+
+或者在插件项目目录里跑 `dotnet add package luolan.winland.Core`（不写 `--version` 就装最新版）。
+
+- **版本号 = 宿主 API 版本**：`2.2.0` = 基础能力 + 聚光卡（§16）+ 文件投放（§17）。用到 2.1 / 2.2 的增量 API 时，`plugin.json` 的 `min_host_version` 要跟着提到 `"2.1.0"` / `"2.2.0"`。
+- `ExcludeAssets="runtime"` **是必须的**：`WinIsland.Core.dll` 由宿主提供，不能进插件包（市场 CI 会拒绝）。
+- 插件 TFM 必须是 `net10.0-windows10.0.26100.0`（包只提供这个目标框架）。
+- **没有源码也能做插件**。只有「想跟着宿主源码一起改 SDK」或「需要源码构建的宿主调试副本」时才需要源码仓库，那时把上面那行换成 `ProjectReference`：
 
 ```xml
 <ItemGroup>
@@ -444,7 +457,7 @@ dotnet build          # 构建（配合 csproj 的 CopyToWinIsland 目标自动�
 | `Api.Settings.Changed += …` | `Context.OnSettingsChanged(key, handler)` 或 `Register(...)` |
 | `Api.Dispatcher.CreateTimer()` | `Context.CreateTimer(...)`（自动随停用释放） |
 | 根目录散装 `*.dll` | `plugins/<id>/` 目录或 `.lwp` 包 |
-| `luolan.winland.Core` NuGet 1.x | 不兼容；用源码里的 `WinIsland.Core`（api_version 2） |
+| `luolan.winland.Core` NuGet 1.x | 不兼容；用 2.x（`>= 2.0.0`）的包或源码 |
 
 ## 15. 设置项与刷新：两个"改了没反应"的坑
 

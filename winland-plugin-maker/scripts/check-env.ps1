@@ -1,18 +1,19 @@
 <#
 .SYNOPSIS
-    WinIsland 插件开发「环境体检」：检查 .NET SDK / git / GitHub CLI / PowerShell，给出缺失项的一键安装建议。
+    WinIsland 插件开发「环境体检」：检查 .NET SDK / git / GitHub CLI / PowerShell / 插件 SDK 可达性，给出缺失项的一键安装建议。
 
 .DESCRIPTION
     只做检查，不安装任何东西（安装要先征得用户同意，由 AI 或用户自己执行）。
     每个缺失项都会附上对应的安装命令。
 
+    插件 SDK 是 NuGet 包 luolan.winland.Core，不需要 WinIsland 源码；这里只查询 nuget.org 上能不能拿到它
+    （网络/代理不通时还原会失败，见 references/troubleshooting.md）。
+
 .PARAMETER WinIslandRepo
-    可选：WinIsland 源码目录，用来验证里面有没有插件 SDK（WinIsland.Core）。
+    可选：WinIsland 源码目录。只有"想改 SDK 本身 / 要用源码构建的宿主调试"时才需要，一般不用传。
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\check-env.ps1
-.EXAMPLE
-    powershell -ExecutionPolicy Bypass -File scripts\check-env.ps1 -WinIslandRepo "C:\src\winland"
 #>
 param(
     [string]$WinIslandRepo = ""
@@ -96,18 +97,32 @@ try {
 catch { }
 Add-Result "PowerShell 7（pwsh，可选）" $pwshOk $pwshDetail "winget install --id Microsoft.PowerShell"
 
-# ---- 5) WinIsland 源码 / 插件 SDK ----
+# ---- 5) 插件 SDK（NuGet 包 luolan.winland.Core）----
+$packageId = "luolan.winland.core"
+try {
+    $index = Invoke-RestMethod "https://api.nuget.org/v3-flatcontainer/$packageId/index.json" -TimeoutSec 20 -ErrorAction Stop
+    $versions = @($index.versions | Where-Object { $_ -like "2.*" })
+    if ($versions.Count -gt 0) {
+        $latest = $versions[-1]
+        Add-Result "插件 SDK（NuGet: luolan.winland.Core）" $true "可获取，最新 2.x 版本：$latest" ""
+    }
+    else {
+        Add-Result "插件 SDK（NuGet: luolan.winland.Core）" $false "能连上 nuget.org，但没有 2.x 版本" "确认包名；或改用源码 ProjectReference（见 references/sdk-api.md §1）"
+    }
+}
+catch {
+    Add-Result "插件 SDK（NuGet: luolan.winland.Core）" $false "查不到（网络/代理问题）：$($_.Exception.Message)" "检查网络或代理；能访问 nuget.org 就能还原，实在不行用源码 ProjectReference"
+}
+
+# WinIsland 源码：可选（只有要改 SDK 本身 / 用源码构建的宿主调试时才需要）
 if ($WinIslandRepo) {
     $core = Join-Path $WinIslandRepo "WinIsland.Core\WinIsland.Core.csproj"
     if (Test-Path $core) {
-        Add-Result "WinIsland 源码（含 WinIsland.Core）" $true "已找到：$core" ""
+        Add-Result "WinIsland 源码（可选）" $true "已找到：$core" ""
     }
     else {
-        Add-Result "WinIsland 源码（含 WinIsland.Core）" $false "路径不对，没找到 $core" "把 -WinIslandRepo 换成真实源码目录，或先获取 WinIsland 源码"
+        Add-Result "WinIsland 源码（可选）" $false "路径不对，没找到 $core" "不需要源码也能做插件；只有要改 SDK 时才需要它"
     }
-}
-else {
-    Add-Result "WinIsland 源码（含 WinIsland.Core）" $false "没提供路径（用 -WinIslandRepo 传源码目录可自动验证）" "SDK 2.0 还没发布到 NuGet，必须从 WinIsland 源码引用；先确认源码在哪个文件夹"
 }
 
 foreach ($r in $results) {
@@ -130,5 +145,5 @@ if ($missing.Count -eq 0) {
 }
 else {
     Write-Output ("有 {0} 项缺失/待确认：{1}" -f $missing.Count, (($missing | ForEach-Object { $_.检查项 }) -join "、"))
-    Write-Output "硬性要求只有「.NET SDK 10.x」和「WinIsland 源码」；gh 等第 6 步要上传时再补也行。"
+    Write-Output "硬性要求只有「.NET SDK 10.x」+「能连上 nuget.org 还原插件 SDK」；gh 等第 6 步要上传时再补也行。"
 }

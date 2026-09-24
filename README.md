@@ -30,7 +30,7 @@ Copy-Item -Recurse "$env:TEMP\WinLandPluginSkills\winland-plugin-maker" "$env:US
 
 然后 AI 会自动走完整个流程：
 
-1. **先做环境体检**——检查 .NET 10 SDK、WinIsland 源码、GitHub CLI 等；**缺 .NET 会主动提出帮你装好**
+1. **先做环境体检**——检查 .NET 10 SDK、宿主安装位置、GitHub CLI 等（插件 SDK 从 NuGet 装，不需要 WinIsland 源码）；**缺 .NET 会主动提出帮你装好**
 2. 问清插件功能 / 名字 / 署名，从模板搭出项目
 3. 写好代码（SDK 2.0 写法，不会抄网上过时的旧教程）
 4. 编译并**装进你电脑上已安装的 WinIsland**，让你亲手实测、确认效果
@@ -68,7 +68,7 @@ winland-plugin-maker/
 │   └── troubleshooting.md       ← 编译、加载、动画卡死、改设置不刷新、打包的排错表
 ├── assets/plugin-template/      ← 开箱可编译的插件模板工程
 └── scripts/
-    ├── check-env.ps1            ← 环境体检（.NET / git / gh / 源码）
+    ├── check-env.ps1            ← 环境体检（.NET / git / gh / 插件 SDK 可达性）
     └── find-winisland.ps1       ← 自动定位你安装的 WinIsland
 ```
 

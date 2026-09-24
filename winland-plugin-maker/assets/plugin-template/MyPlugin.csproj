@@ -16,27 +16,23 @@
     <!-- 自带第三方 NuGet 依赖时，把这行打开，依赖才会复制进插件目录 -->
     <!-- <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies> -->
 
-    <!-- 插件 SDK（WinIsland.Core）的位置：默认按“项目放在 WinIsland 源码仓库的 samples\<名字>\ 下”配置；
-         项目放到别处时改这里（写绝对路径也行） -->
-    <WinIslandCoreProject Condition="'$(WinIslandCoreProject)' == ''">$(MSBuildThisFileDirectory)..\..\WinIsland.Core\WinIsland.Core.csproj</WinIslandCoreProject>
-
-    <!-- 宿主的 plugins 目录：构建完成后插件会被自动拷贝到这里。
-         默认按“WinIsland 从源码构建（bin\<配置>\...\win-x64\）”配置；
-         如果用的是安装版 WinIsland，把这里改成 WinIsland.exe 所在目录 + \plugins -->
-    <WinIslandPluginsDir Condition="'$(WinIslandPluginsDir)' == ''">$(MSBuildThisFileDirectory)..\..\WinIsland\bin\$(Configuration)\net10.0-windows10.0.26100.0\win-x64\plugins</WinIslandPluginsDir>
+    <!-- 宿主的 plugins 目录：构建完成后插件会被自动拷贝到这里（第 2 步必须改成你自己的）。
+         安装版 WinIsland 默认在 %LocalAppData%\Programs\WinIsland\plugins；
+         找不到就用技能里的 scripts\find-winisland.ps1 自动定位 -->
+    <WinIslandPluginsDir Condition="'$(WinIslandPluginsDir)' == ''">$(LocalAppData)\Programs\WinIsland\plugins</WinIslandPluginsDir>
 
     <!-- 插件安装目录名：改成你的插件 id -->
     <PluginTargetDir>$(WinIslandPluginsDir)\my-plugin</PluginTargetDir>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Windows App SDK / WinUI 运行时由宿主提供，排除出运行时，避免打进插件包 -->
+    <!-- 插件 SDK 从 NuGet 装（版本号 = 宿主 API 版本，当前 2.2.0）。
+         ExcludeAssets="runtime"：WinIsland.Core.dll 由宿主提供，不能进插件包（市场 CI 会拒绝） -->
+    <PackageReference Include="luolan.winland.Core" Version="2.2.0" PrivateAssets="all" ExcludeAssets="runtime" />
+
+    <!-- Windows App SDK / WinUI 运行时同样由宿主提供，排除出运行时，避免打进插件包 -->
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2526" PrivateAssets="all" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.3.1" PrivateAssets="all" ExcludeAssets="runtime" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="$(WinIslandCoreProject)" Private="false" />
   </ItemGroup>
 
   <ItemGroup>

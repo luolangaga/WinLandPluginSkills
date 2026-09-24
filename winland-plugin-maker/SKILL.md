@@ -38,7 +38,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 ### 铁律 3：插件 SDK 是 2.0，禁止使用 1.x 的旧写法
 
-网上能搜到的、旧教程里的 `IIslandModule`、`[IslandPlugin(...)]`、`IDynamicIslandApi`、`SetLiveContent`、根目录散装 DLL —— **全部是 1.x 的写法，在 2.0 已被删除**，照抄会导致插件加载失败。写代码前先读 `references/sdk-api.md`；任何不确定的 API，以本技能参考文档和宿主源码 `WinIsland.Core/` 为准。
+网上能搜到的、旧教程里的 `IIslandModule`、`[IslandPlugin(...)]`、`IDynamicIslandApi`、`SetLiveContent`、根目录散装 DLL —— **全部是 1.x 的写法，在 2.0 已被删除**，照抄会导致插件加载失败。写代码前先读 `references/sdk-api.md`；任何不确定的 API，以本技能参考文档和 SDK 里的接口注释（NuGet 包 `luolan.winland.Core`）为准。
 
 `api_version` 是 `2`；之后新增的能力是**增量 API**，靠 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡要 `2.1.0`**、**文件投放要 `2.2.0`**。写低了旧宿主会抛 `MissingMethodException`（宿主按插件异常捕获并记日志，功能直接不可用）。
 
@@ -60,7 +60,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 }
 ```
 
-- 插件放进 WinIsland 源码仓库的 `samples\` 下时，仓库根的 `global.json` 已经覆盖它，但项目里那份留着无害，**照样别删**。
+- 插件项目恰好放在 WinIsland 源码仓库的 `samples\` 下时，仓库根的 `global.json` 已经覆盖它，但项目里那份留着无害，**照样别删**（插件项目现在已经不要求放在源码仓库里了，放哪都行）。
 - 判定方法：在插件项目目录里跑 `dotnet --version`，必须是 `10.x`；是 `11.x` 或带 `-rc`/`-preview` 就说明钉的没生效。
 - **必须在插件项目目录里跑构建**：`global.json` 是按**你运行 `dotnet` 时的当前目录**往上找的，跟 `.csproj` 放在哪儿无关。在别处（仓库根、桌面…）用 `dotnet build <路径>` 调用，等于没有 `global.json` —— 会直接挑机器上最新的 SDK（实测：从别的目录构建时，构建日志里出现 `sdk\11.0.100-rc...\Sdks\Microsoft.NET.Sdk`，这正是"本地能跑、装到正式版宿主就加载失败"的成因）。所以：**先 `cd` 进插件目录，再 `dotnet build`**。
 - 报错特征（宿主 2.0.x 起会直接说清版本差）：`插件需要 Microsoft.Windows.SDK.NET 10.0.26100.86，宿主提供的是 10.0.26100.38：插件构建用的 .NET / Windows SDK 比宿主新……`
@@ -80,7 +80,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 ```
 第 0 步  想清楚做什么（功能 / 名字 / 署名）——可与下面的环境体检并行
    │
-第 1 步  环境体检：跑 check-env.ps1，缺 .NET 就帮忙装，确认源码与宿主位置
+第 1 步  环境体检：跑 check-env.ps1，缺 .NET 就帮忙装，确认宿主位置（插件 SDK 从 NuGet 装，不需要源码）
    │
 第 2 步  从模板 assets/plugin-template/ 建项目并改名
    │
@@ -110,35 +110,36 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 ## 第 1 步：环境体检（缺什么补什么）
 
-**先跑本技能的 `scripts/check-env.ps1`**（能确认源码路径就带上：`-WinIslandRepo "<WinIsland源码目录>"`），它会给出一张清单（.NET SDK / git / GitHub CLI / PowerShell / 源码），**再用大白话念给用户听**。然后缺什么补什么：
+**先跑本技能的 `scripts/check-env.ps1`**，它会给出一张清单（.NET SDK / git / GitHub CLI / PowerShell / 插件 SDK 是否可达），**再用大白话念给用户听**。然后缺什么补什么：
 
 1. **.NET SDK 10.x**（编译插件的"工具箱"，硬性要求）——缺失就**主动提出帮用户装**：
    - 先征得同意（装软件是改动用户电脑，要说清"装什么、干什么用"）
    - 首选你代跑 `winget install --id Microsoft.DotNet.SDK.10`（弹 UAC 时让用户点"是"；装完**重开终端**才能识别）
    - 没有 winget 或安装失败 → 让用户打开 `https://dotnet.microsoft.com/download/dotnet/10.0` 下载安装包双击安装
    - 装完再跑一次 `dotnet --list-sdks` 验证，**装出了 `10.x` 才能继续**。注意这里是"有 10.x"，**不是"10 或更新"**：用户机器上有 11/预览版不算问题，别让人为了这个去卸 SDK —— 挡住它的是铁律 4 的项目级 `global.json`；但体检结果里出现更高的 SDK 时，**一定要提醒**：项目里那份 `global.json` 不能少。
-2. **WinIsland 源码仓库**（里面有 `WinIsland.Core` 文件夹，那就是插件 SDK）。直接问用户："你电脑上的 WinIsland 源码在哪个文件夹？"
-   - 找不到时：告诉用户 SDK 2.0 目前**没有**发布到 NuGet 包站（NuGet 上的 1.x 不兼容、不能用），必须拿到源码；然后问用户源码可以从哪里获得（本地压缩包 / 某个仓库地址），别自己乱猜乱下载。
-3. **宿主位置（关键）**：插件最终要放进 WinIsland 的 `plugins\` 目录（与 `WinIsland.exe` 同一文件夹）。分两处：
+2. **插件 SDK：不用你操心，从 NuGet 装**。插件用的 SDK 是 NuGet 包 `luolan.winland.Core`（版本号 = 宿主 API 版本，当前 `2.2.0`），第 2 步的模板里已经写好了 —— **不需要 WinIsland 源码，也不用手动下载任何东西**。
+   - 这一步唯一可能的坑是网络（还原不动就查 `references/troubleshooting.md` 的「找不到版本为 … 的包」一行；国内网络可能需要代理）。
+   - 只有用户明确说「我要改 SDK 本身」或「我要用源码构建的宿主来调试」时，才需要 WinIsland 源码仓库；那时把模板 csproj 里的 `PackageReference` 换成 `ProjectReference`（见 `references/sdk-api.md` §1）。
+3. **宿主位置（关键）**：插件最终要放进 WinIsland 的 `plugins\` 目录（与 `WinIsland.exe` 同一文件夹）：
    - **用户平时用的那个 WinIsland**（安装版 / 便携版）——这是"实测"用的，必须找到它（第 4 步要用）。
      自动找：跑 `scripts/find-winisland.ps1`（会从正在运行的进程、注册表、开始菜单快捷方式、常见目录里找），把结果给用户确认；
      找不到就教用户手动定位：右键桌面 / 开始菜单里的 WinIsland 图标 →「打开文件所在位置」。
-   - 源码构建出来的副本（开发调试用）：`<源码仓库>\WinIsland\bin\<Debug|Release>\net10.0-windows10.0.26100.0\win-x64\`
+     安装版默认在 `%LocalAppData%\Programs\WinIsland\plugins`。
+   - （可选）如果用户也在跑源码构建的宿主：`<源码仓库>\WinIsland\bin\<Debug|Release>\net10.0-windows10.0.26100.0\win-x64\plugins`。
 4. **git / GitHub CLI（gh）**：现在缺了也不影响写插件（体检脚本会列出来），等第 6 步要上传时再补装——装法见 `references/publish.md`。
 
-记下来：**用户实际使用的宿主目录**及其 `plugins\` 路径、以及源码构建副本的路径。体检没过就先解决，别急着进第 2 步。
+记下来：**用户实际使用的宿主目录**及其 `plugins\` 路径（第 2 步要写进 csproj）。体检没过就先解决，别急着进第 2 步。
 
 ## 第 2 步：从模板创建项目
 
 模板在**本技能文件夹**的 `assets/plugin-template/` 里。
 
-1. 建议把插件项目建在 `<WinIsland源码>\samples\<项目名>\`（模板默认按这个位置配好了相对路径，最省事）；放别处也行，只是要改路径。先问用户放哪。
+1. **插件项目放哪都行**（推荐 `文档\<插件名>\` 或任意工作目录）—— 模板已经从 NuGet 引用 SDK，不再依赖源码路径、也不用放进 `samples\`。先问用户放哪。
 2. 把模板里的全部文件复制过去 —— **连同 `global.json`**（它决定用哪个 SDK 构建，见铁律 4；漏了会在正式版宿主上加载失败）。
 3. 逐项改名（列成清单，改完让用户过一眼）：
    - `MyPlugin.cs` / `MyPluginView.cs` 里的类名、命名空间 `MyPlugin` → 新名字
    - `plugin.json`：`id`（kebab-case）、`name`（中文名）、`entry_dll`（改成 `<新类名>.dll`）、`author`、`description`、`homepage`、`tags`
-   - `MyPlugin.csproj`：`RootNamespace`、`PluginTargetDir` 结尾的 `my-plugin` → 插件 id、`WinIslandPluginsDir` → **第 1 步找到的"用户平时用的 WinIsland"目录 + `\plugins`**（这样 `dotnet build` 会直接把插件装到用户平时用的那个 WinIsland 里，下一步实测最省事）
-   - 项目不在 samples 下时：把 csproj 里 `WinIslandCoreProject` 改成 `WinIsland.Core.csproj` 的真实路径
+   - `MyPlugin.csproj`：`RootNamespace`、`PluginTargetDir` 结尾的 `my-plugin` → 插件 id、**`WinIslandPluginsDir` → 第 1 步找到的"用户平时用的 WinIsland"目录 + `\plugins`**（这样 `dotnet build` 会直接把插件装进用户平时用的那个 WinIsland，下一步实测最省事；这是**必须改**的一项）
    - `global.json`：**保持原样**，不要改名、不要删（铁律 4 靠它把构建 SDK 钉在 .NET 10）
 
 ## 第 3 步：写代码
@@ -234,7 +235,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 ## 第 5 步：打包成 .lwp
 
-推荐用宿主源码里的打包脚本（在 WinIsland 源码仓库根目录跑）：
+推荐用宿主源码里的打包脚本（在 WinIsland 源码仓库根目录跑；**手上有源码就用它，最省事**）：
 
 ```powershell
 pwsh tools/pack-plugin.ps1 -ProjectDir samples\<项目名> -Configuration Release
@@ -242,7 +243,7 @@ pwsh tools/pack-plugin.ps1 -ProjectDir samples\<项目名> -Configuration Releas
 
 产出：`samples\dist\<id>.lwp`。
 
-没有 `pwsh`（PowerShell 7）时用 Windows 自带的 `powershell` 代替即可；两者都跑不了时用"手动压缩"兜底方案（见 `references/publish.md`）。
+没有 pwsh（PowerShell 7）时用 Windows 自带的 `powershell` 代替即可。**手上没有 WinIsland 源码也没关系**：按 `references/publish.md` 的"手动压缩"兜底方案自己压一个 zip 再把扩展名改成 `.lwp`（包内结构要求见 `references/publish.md`）。
 
 打包后自检：
 - 包里有 `plugin.json` 和入口 dll（`<id>.dll`）
@@ -277,7 +278,7 @@ pwsh tools/pack-plugin.ps1 -ProjectDir samples\<项目名> -Configuration Releas
 | `references/publish.md` | 第 6 步上传前必读：GitHub 登录、源码仓库、投稿 PR、话术与兜底方案 |
 | `references/troubleshooting.md` | 编译、加载、动画、依赖出问题时 |
 | `assets/plugin-template/` | 第 2 步建项目时整体复制 |
-| `scripts/check-env.ps1` | 第 1 步开工前先跑：检查 .NET SDK / git / gh / pwsh / 源码，缺什么按提示补 |
+| `scripts/check-env.ps1` | 第 1 步开工前先跑：检查 .NET SDK / git / gh / pwsh / 插件 SDK 是否可达，缺什么按提示补 |
 | `scripts/find-winisland.ps1` | 第 1 步找"用户平时用的 WinIsland"装在哪：跑一遍，把结果给用户确认 |
 
 ## 说话方式示例
@@ -289,4 +290,4 @@ pwsh tools/pack-plugin.ps1 -ProjectDir samples\<项目名> -Configuration Releas
 > 现在需要装一个叫「.NET 10 SDK」的东西，相当于编译插件的工具箱。我先检查一下你电脑上有没有。
 
 不好：
-> 配置 csproj 的 TFM 并确保 ProjectReference 指向 SDK。
+> 配置 csproj 的 TFM，并从 NuGet 引用插件 SDK。
