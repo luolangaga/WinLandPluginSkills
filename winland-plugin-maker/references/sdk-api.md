@@ -662,7 +662,7 @@ protected override Task OnInitializeAsync()
         Handler = async context =>
         {
             foreach (var path in context.Paths) await AddAsync(path);
-            return $"已加入 {context.Paths.Count} 首";   // 返回文案 → 宿主弹一条临时消息（null = 不提示）
+            return $"已加入 {context.Paths.Count} 首";   // 返回文案 → 宿主弹一条临时消息；返回 null 时宿主代你弹「已完成「卡片标题」」
         },
     });
 
@@ -678,7 +678,8 @@ protected override Task OnInitializeAsync()
 | `IslandDropKind.Text` | 浏览器 / 编辑器里选中一段文字或链接拖过来 | `Text` |
 | `IslandDropKind.Image` | 浏览器里拖图片、截图工具里拖图 | `ImageBytes`（**源格式**的原始字节，通常是 PNG / JPEG） |
 
-判定顺序是 **文件 > 图片 > 文本**（从浏览器拖图片时往往同时带文本＝图片地址，那种情况按图片处理）。
+类型由宿主**按内容判定**（文件 > 图片 > 文本）：浏览器里拖选中的文字常常会附带一张「选区快照」位图，那种情况**按文本处理**；
+只有 HTML 片段里带 `<img>`、或文本本身就是图片地址时才当图片（判定依据与可用格式会写进宿主日志的 Debug 行，便于排错）。
 `ItemCount` / `IsSingle` 描述"这一批有多少项"：文件是路径条数，文本 / 图片算 1。
 
 ### 17.2 三种过滤：Kinds、Extensions、全收
@@ -700,9 +701,10 @@ Kinds = IslandDropKind.All,                            // 三种都收，按 con
 3. **`Handler` 抛异常不影响宿主**：宿主包了守卫，只记日志并计入"累计 5 次未处理异常自动停用"。
 4. **插件停用 / 卸载时卡片自动消失**（`PluginScope` 兜底），不需要自己清理；运行期想换一批卡片就再调一次 `AddDropTarget`（同 Id 覆盖）或 `RemoveDropTarget(id)`。
 5. **图片有 32MB 上限**：超过或读不出来时这次投放等于落空，日志里会写明原因。
-6. **`Order` 决定卡片顺序**：插件默认 0，排在宿主内置动作（打开 / 所在位置 / 复制路径 / 复制文本 / 保存图片，900+）前面。
-7. **用户可以在「设置 → 通用 → 文件投放」里关掉整个功能**：关掉后岛对拖放完全无感，这不是插件的 bug。
-8. `plugin.json` 的 `min_host_version` 写 `"2.2.0"`（旧宿主没有这些 API，调用会抛 `MissingMethodException` 并被记成插件异常）；`api_version` 仍然是 `2`。
+6. **`Order` 决定卡片顺序**：插件默认 0，排在宿主内置动作（打开 / 所在位置 / 复制路径 / 复制文本 / 保存图片，900+）前面 —— 其中「保存图片」会弹系统「另存为」让用户自己选位置，取消则提示「已取消保存」。
+7. **每个动作都要有反馈**：`Handler` 返回的文案会弹成一条临时消息；返回 `null` / 空字符串时宿主代你弹「已完成「卡片标题」」，所以别指望"什么都不提示"。
+8. **用户可以在「设置 → 通用 → 文件投放」里关掉整个功能**：关掉后岛对拖放完全无感，这不是插件的 bug。
+9. `plugin.json` 的 `min_host_version` 写 `"2.2.0"`（旧宿主没有这些 API，调用会抛 `MissingMethodException` 并被记成插件异常）；`api_version` 仍然是 `2`。
 
 ## 18. 主题与配色（浅色 / 深色适配）
 
