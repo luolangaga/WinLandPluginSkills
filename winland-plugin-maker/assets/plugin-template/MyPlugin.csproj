@@ -28,7 +28,7 @@
   <ItemGroup>
     <!-- 插件 SDK 从 NuGet 装（主次版本 = 宿主 API 版本，当前 2.2.1）。
          ExcludeAssets="runtime"：WinIsland.Core.dll 由宿主提供，不能进插件包（市场 CI 会拒绝） -->
-    <PackageReference Include="luolan.winland.Core" Version="2.2.1" PrivateAssets="all" ExcludeAssets="runtime" />
+    <PackageReference Include="luolan.winland.Core" Version="2.3.0" PrivateAssets="all" ExcludeAssets="runtime" />
 
     <!-- Windows App SDK / WinUI 运行时同样由宿主提供，排除出运行时，避免打进插件包 -->
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2526" PrivateAssets="all" ExcludeAssets="runtime" />

@@ -10,11 +10,12 @@ namespace MyPlugin;
 /// 岛上的视图：同一棵可视树同时承载「小岛（紧凑态）」和「大岛（展开态）」，
 /// 宿主切换形态时调用 AnimateToExpanded / AnimateToCompact 让内部元素同步变形。
 ///
-/// 四条要点：
+/// 五条要点：
 ///   1. 所有元素（含只在展开态出现的）一开始就常驻可视树；
 ///   2. 隐藏用 Height = 0 + Opacity = 0，不要用 Visibility = Collapsed（无法过渡）；
 ///   3. 形态动画逐帧直接赋值，**不要用 Storyboard**（见 StartMorph 的注释）；
-///   4. 缓动与宿主保持一致：BackEase(EaseOut, Amplitude: 0.45)。
+///   4. 缓动与宿主保持一致：BackEase(EaseOut, Amplitude: 0.45)；
+///   5. 配色跟着岛体主题走（见 ApplyThemeColors）—— 写死白色在浅色主题下就是白字压白底。
 /// </summary>
 public sealed class MyPluginView : UserControl, IMorphView
 {
@@ -27,10 +28,19 @@ public sealed class MyPluginView : UserControl, IMorphView
     /// <summary>与宿主内置视图同一条 BackEase 曲线的幅度，手感保持一致。</summary>
     private const double BackAmplitude = 0.45;
 
+    private readonly IIslandTheme _theme;
     private readonly FontIcon _icon;
     private readonly TextBlock _title;
     private readonly TextBlock _status;
     private readonly StackPanel _detail;
+
+    /// <summary>
+    /// 中性色一律用**共享画刷**：主题一变只改这几个画刷的 Color，所有用到它们的地方当场跟着变。
+    /// 比逐个元素重设 Foreground 稳，也不用重建视图。
+    /// </summary>
+    private readonly SolidColorBrush _textBrush = new();
+    private readonly SolidColorBrush _mutedBrush = new();
+    private readonly SolidColorBrush _faintBrush = new();
 
     private readonly DispatcherQueueTimer? _morphTimer;
     private DateTimeOffset _morphStart;
@@ -41,8 +51,14 @@ public sealed class MyPluginView : UserControl, IMorphView
     /// <summary>当前形态进度：0 = 紧凑态，1 = 展开态。反转动画时从这里接着走。</summary>
     private double _progress;
 
-    public MyPluginView(PluginManifest manifest)
+    public MyPluginView(PluginManifest manifest, IIslandTheme theme)
     {
+        _theme = theme;
+        ApplyThemeColors();
+
+        // 岛体换主题（Fluent 跟随系统明暗；Apple 恒为深色）：重刷共享画刷即可
+        _theme.Changed += ApplyThemeColors;
+
         _icon = new FontIcon
         {
             Glyph = manifest.IconGlyph ?? "\uE8BD",
@@ -56,14 +72,14 @@ public sealed class MyPluginView : UserControl, IMorphView
             Text = manifest.Name,
             FontSize = CompactTitleSize,
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+            Foreground = _textBrush,
         };
 
         _status = new TextBlock
         {
             Text = "已就绪",
             FontSize = 13,
-            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(210, 255, 255, 255)),
+            Foreground = _mutedBrush,
         };
 
         // 展开态才显示的内容：Height/Opacity 归零藏起来（元素仍在可视树里）
@@ -74,7 +90,7 @@ public sealed class MyPluginView : UserControl, IMorphView
             Text = manifest.Description ?? "",
             FontSize = 12,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(160, 255, 255, 255)),
+            Foreground = _faintBrush,
         });
 
         var header = new StackPanel
@@ -117,6 +133,18 @@ public sealed class MyPluginView : UserControl, IMorphView
     public void AnimateToExpanded(TimeSpan duration) => StartMorph(expanded: true, duration);
 
     public void AnimateToCompact(TimeSpan duration) => StartMorph(expanded: false, duration);
+
+    /// <summary>中性色：岛体深色时是白色系，浅色（Fluent + 浅色系统）时是黑色系。</summary>
+    private void ApplyThemeColors()
+    {
+        _textBrush.Color = Neutral(255);
+        _mutedBrush.Color = Neutral(210);
+        _faintBrush.Color = Neutral(160);
+    }
+
+    private Windows.UI.Color Neutral(byte alpha) => _theme.IsLight
+        ? Windows.UI.Color.FromArgb(alpha, 0, 0, 0)
+        : Windows.UI.Color.FromArgb(alpha, 255, 255, 255);
 
     /// <summary>
     /// 形态动画走「逐帧属性赋值」，刻意不用 Storyboard。

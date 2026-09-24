@@ -22,7 +22,7 @@ public sealed class MyPlugin : IslandPluginBase
     {
         Log.Info($"启动：{Manifest.Id} {Manifest.Version}，插件目录 {PluginDirectory}");
 
-        _view = new MyPluginView(Manifest);
+        _view = new MyPluginView(Manifest, Theme);
 
         // 注册常驻内容：小岛/大岛的尺寸和动画由宿主统一管理
         _content = new IslandLiveContent
@@ -108,7 +108,7 @@ public sealed class MyPlugin : IslandPluginBase
     /// </summary>
     private void OpenSpotlight()
     {
-        _spotlightView ??= new MyPluginSpotlightView(Manifest);
+        _spotlightView ??= new MyPluginSpotlightView(Manifest, Theme);
 
         Context.Island.OpenSpotlight(new IslandSpotlight
         {

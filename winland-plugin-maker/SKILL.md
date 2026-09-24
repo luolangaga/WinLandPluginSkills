@@ -7,7 +7,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 把「我想给灵动岛做个插件」从零一路带到「上架社区插件市场」。整个过程中你是**陪跑员 + 执行者**：用户可能完全不懂编程，所以每一步都要做到——先说说要干什么 → 给出命令或操作 → 告诉用户会看到什么 → 等用户反馈 → 再走下一步。
 
-## 五条铁律（不可违反）
+## 六条铁律（不可违反）
 
 ### 铁律 1：任何"上传到网上"的动作之前，必须先问用户
 
@@ -40,7 +40,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 网上能搜到的、旧教程里的 `IIslandModule`、`[IslandPlugin(...)]`、`IDynamicIslandApi`、`SetLiveContent`、根目录散装 DLL —— **全部是 1.x 的写法，在 2.0 已被删除**，照抄会导致插件加载失败。写代码前先读 `references/sdk-api.md`；任何不确定的 API，以本技能参考文档和 SDK 里的接口注释（NuGet 包 `luolan.winland.Core`）为准。
 
-`api_version` 是 `2`；之后新增的能力是**增量 API**，靠 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡要 `2.1.0`**、**文件投放要 `2.2.0`**。写低了旧宿主会抛 `MissingMethodException`（宿主按插件异常捕获并记日志，功能直接不可用）。
+`api_version` 是 `2`；之后新增的能力是**增量 API**，靠 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡要 `2.1.0`**、**文件投放要 `2.2.0`**、**主题（`Context.Theme`）要 `2.3.0`**。写低了旧宿主会抛 `MissingMethodException`（宿主按插件异常捕获并记日志，功能直接不可用）。
 
 ### 铁律 4：构建用的 .NET SDK 不能比宿主新，否则插件必定加载失败
 
@@ -75,6 +75,16 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 - 定时器 / 每帧回调里抛的异常同样计入宿主未处理异常计数：能兜住的错误（取数失败之类）自己 `try/catch` 记日志。
 - 细节与完整代码：`references/sdk-api.md` §6；现象对照：`references/troubleshooting.md`。
 
+### 铁律 6：配色必须适配浅色 / 深色，禁止写死白字
+
+岛的 Fluent 外观**跟随系统明暗**（设置 → 个性化 → 颜色 → 「默认应用模式」；进程存活期间切换也当场生效），Apple 外观恒为深色黑胶囊。写死 `Colors.White` / `#FFFFFF` 的视图在浅色主题下就是**白字压白底**；反过来，浅色时建好的视图在系统切到深色后不重刷，就变成**深色岛上的黑字** —— 两个方向都要防。
+
+- **XAML 视图**：文字用 `{ThemeResource TextFillColorPrimaryBrush}`（次级 `Secondary`、最淡 `Tertiary`）；自定义的中性色（灰底、分隔线、占位块）写进 `ResourceDictionary.ThemeDictionaries` 的 `Light` / `Dark` 两套，再用 `{ThemeResource 你的键}` 取。这样岛体换主题时它们自己跟着换，**不用写一行代码**。
+- **代码搭的视图**：构造时接收 `IIslandTheme`（插件里就是 `Context.Theme` / `Theme`），按 `theme.IsLight` 选色；中性色做成**共享的 `SolidColorBrush` 字段**，订阅 `theme.Changed` 时只改它们的 `Color`。模板 `assets/plugin-template/MyPluginView.cs` 与 `MyPluginSpotlightView.cs` 已经是这个写法，**照抄**。
+- `IsLight` 说的是**岛体**的明暗（Apple 风格恒为 `false`），不是系统主题：不要自己去读注册表、也不要拿应用级主题代替 —— 岛体可能是"系统浅色 + Apple 深色胶囊"这种组合。
+- 用了 `Context.Theme` 的插件，`plugin.json` 的 `min_host_version` 必须写 `"2.3.0"`。
+- 聚光卡也要适配：它是一张独立的大卡片，跟着岛体一起明暗切换。
+- 自查：写完把系统主题切一遍（浅色↔深色），岛上的文字、灰底、分隔线都得跟着变；两套主题下都读得清才算过。
 ## 全流程地图
 
 ```

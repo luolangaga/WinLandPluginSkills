@@ -130,6 +130,7 @@ public sealed class MyPlugin : IslandPluginBase
 | `Log` | `Debug/Info/Warn/Error` 写入插件日志（内存 + 文件） |
 | `Settings` | 作用域化设置存储，键自动加 `<id>.` 前缀 |
 | `Island.SetContent(content)` | 注册常驻内容（`null` 取消）。owner 由宿主绑定为插件 id |
+| `Theme` | 岛体当前的明暗主题（`IIslandTheme`：`IsLight` + `Changed`），配色适配用（见 §18，需宿主 ≥ 2.3.0） |
 | `Island.OpenSpotlight(spotlight)` / `Island.CloseSpotlight()` | 打开 / 收起「超级展开」聚光卡（见 §16，需宿主 ≥ 2.1.0） |
 | `Island.AddDropTarget(target)` / `Island.RemoveDropTarget(id)` | 注册 / 移除**文件投放目标**：拖文件/文本/图片到岛上时的一排卡片（见 §17，需宿主 ≥ 2.2.0；停用时自动移除） |
 | `Island.ShowMessage(msg)` | 弹一条临时消息 |
@@ -702,3 +703,80 @@ Kinds = IslandDropKind.All,                            // 三种都收，按 con
 6. **`Order` 决定卡片顺序**：插件默认 0，排在宿主内置动作（打开 / 所在位置 / 复制路径 / 复制文本 / 保存图片，900+）前面。
 7. **用户可以在「设置 → 通用 → 文件投放」里关掉整个功能**：关掉后岛对拖放完全无感，这不是插件的 bug。
 8. `plugin.json` 的 `min_host_version` 写 `"2.2.0"`（旧宿主没有这些 API，调用会抛 `MissingMethodException` 并被记成插件异常）；`api_version` 仍然是 `2`。
+
+## 18. 主题与配色（浅色 / 深色适配）
+
+岛的 Fluent 外观**跟随系统明暗**（设置 → 个性化 → 颜色 → 「默认应用模式」），系统在进程存活期间切换时会**当场**生效；Apple 外观恒为深色黑胶囊。所以插件视图的配色必须两套都能看：写死白色 → 浅色主题下白字压白底；浅色时建好、之后不重刷 → 系统切深色后变成深色岛上的黑字。
+
+### 18.1 XAML 视图：全部交给 ThemeResource（零代码）
+
+文字直接用系统画刷，岛体换主题时它们自己跟着换：
+
+```xml
+<TextBlock Text="标题" Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+<TextBlock Text="说明" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+<TextBlock Text="提示" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+```
+
+自定义的中性色（灰底、分隔线、占位块）自己给两套：
+
+```xml
+<UserControl.Resources>
+    <ResourceDictionary>
+        <ResourceDictionary.ThemeDictionaries>
+            <ResourceDictionary x:Key="Light">
+                <SolidColorBrush x:Key="MyNeutralFillBrush" Color="#26000000" />
+            </ResourceDictionary>
+            <ResourceDictionary x:Key="Dark">
+                <SolidColorBrush x:Key="MyNeutralFillBrush" Color="#26FFFFFF" />
+            </ResourceDictionary>
+        </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+</UserControl.Resources>
+
+<Border Background="{ThemeResource MyNeutralFillBrush}" />
+```
+
+### 18.2 代码搭的视图：`IIslandTheme`
+
+代码里取不到"当前元素主题"，必须由插件把它传进视图。`IIslandTheme` 只有两个成员：
+
+| 成员 | 说明 |
+|------|------|
+| `bool IsLight` | 岛体当前是否浅色（Apple 风格恒为 `false`） |
+| `event Action Changed` | 主题变化（UI 线程触发）：在这里重刷配色 |
+
+推荐写法（模板 `assets/plugin-template/MyPluginView.cs` 就是这一份）：中性色做成**共享画刷字段**，换主题时只改它们的 `Color` —— 所有用到这支画刷的元素当场跟着变，不用重建视图、也不用逐元素重设 `Foreground`。
+
+```csharp
+public MyPluginView(PluginManifest manifest, IIslandTheme theme)
+{
+    _theme = theme;
+    ApplyThemeColors();
+    _theme.Changed += ApplyThemeColors;      // 岛体换主题
+    ...
+    _title.Foreground = _textBrush;          // 用共享画刷，别 new 一支写死的
+}
+
+private void ApplyThemeColors()
+{
+    _textBrush.Color = Neutral(255);
+    _faintBrush.Color = Neutral(160);
+}
+
+/// <summary>中性色：岛体深色时白色系，浅色（Fluent + 浅色系统）时黑色系。</summary>
+private Windows.UI.Color Neutral(byte alpha) => _theme.IsLight
+    ? Windows.UI.Color.FromArgb(alpha, 0, 0, 0)
+    : Windows.UI.Color.FromArgb(alpha, 255, 255, 255);
+```
+
+聚光卡（§16）是另一棵可视树，同样要接 `IIslandTheme`：卡片本身就跟着岛体一起明暗切换，白字同样会看不见。
+
+### 18.3 规则
+
+1. **不要自己读注册表 / 系统主题**：`IsLight` 说的是**岛体**的明暗，不是系统主题 —— 岛体可能是"系统浅色 + Apple 深色胶囊"这种组合，只有宿主知道该用哪套。
+2. **不要用应用级主题代替**：`Application.Current.RequestedTheme` 与应用资源里的画刷是"设置窗"的主题，和岛体不是一回事。
+3. `theme.Changed` 在 UI 线程触发，可以直接改 UI；回调里抛异常只记日志并计入"累计 5 次未处理异常自动停用"。
+4. 视图活得越久越要重刷：宿主会在插件停用时撤销一切，但**主题变化不会重建你的视图**。
+5. 用了 `Context.Theme` 的插件，`plugin.json` 的 `min_host_version` 写 `"2.3.0"`；`api_version` 仍然是 `2`。
+6. 自查：把系统主题切一遍（浅色↔深色），岛上的文字、灰底、分隔线都得跟着变。
