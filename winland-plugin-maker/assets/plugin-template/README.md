@@ -8,14 +8,14 @@
 |------|--------|
 | 文件名 / 类名 | `MyPlugin` → 你的插件名（如 `WeatherMini`），`MyPlugin.cs`、`MyPluginView.cs`、`MyPluginSpotlightView.cs` 同步改 |
 | `MyPlugin*.cs` | 命名空间 `MyPlugin` → 你的插件名 |
-| `plugin.json` | `id`（全小写+短横线）、`name`（中文名）、`entry_dll`（改成 `<类名>.dll`）、`author`、`description`、`icon_glyph`、`homepage`、`tags`；`min_host_version` 保持 `2.1.0`（聚光卡需要） |
+| `plugin.json` | `id`（全小写+短横线）、`name`（中文名）、`entry_dll`（改成 `<类名>.dll`）、`author`、`description`、`icon_glyph`、`homepage`、`tags`；`min_host_version` 保持 `2.1.0`（聚光卡需要）；**如果用了「文件投放」就提到 `2.2.0`** |
 | `MyPlugin.csproj` | `RootNamespace`；`PluginTargetDir` 结尾的 `my-plugin` → 插件 id；`WinIslandPluginsDir` → 你机器上宿主的 plugins 目录 |
 
 **项目放在 WinIsland 源码仓库的 `samples\<名字>\` 下时，`WinIslandCoreProject` 和 `WinIslandPluginsDir` 的默认相对路径开箱即用；放到别处就要把这两个路径改对。**
 
 ## 目录里的文件
 
-- `MyPlugin.cs` —— 插件入口（`IslandPluginBase`）：注册常驻内容、设置页（含"动作之前先提交设置值"的示范）、设置监听、定时器、点岛开聚光卡
+- `MyPlugin.cs` —— 插件入口（`IslandPluginBase`）：注册常驻内容、设置页（含"动作之前先提交设置值"的示范）、设置监听、定时器、点岛开聚光卡；末尾有一段**注释掉的「文件投放」示例**（想让插件接收拖进来的文件/文本/图片时照它写，见 `references/sdk-api.md` §17）
 - `MyPluginView.cs` —— 岛上视图（`IMorphView`）：紧凑/展开两种形态 + **逐帧**变形动画（照抄，不要改成 Storyboard）
 - `MyPluginSpotlightView.cs` —— 「超级展开」聚光卡内容（点击岛体后居中弹出的大卡片；独立可视树）
 - `plugin.json` —— 插件清单（元数据唯一来源）

@@ -47,6 +47,8 @@ Copy-Item -Recurse "$env:TEMP\WinLandPluginSkills\winland-plugin-maker" "$env:US
 
 > 帮我在插件的设置页加一个显示开关
 
+> 我想让插件能接收拖进来的文件（拖到岛上松手就执行某个动作）
+
 **两条硬性规则**（写在技能里，防止 AI 越界）：插件必须装进你实际在用的 WinIsland、由你亲口确认没问题，才算测试通过；任何"发到网上"的动作（建仓库、push、开 PR）都必须先问你同意。
 
 ## 仓库里有什么
@@ -61,7 +63,7 @@ Copy-Item -Recurse "$env:TEMP\WinLandPluginSkills\winland-plugin-maker" "$env:US
 winland-plugin-maker/
 ├── SKILL.md                     ← 全流程主文档：五条铁律 + 7 步陪跑流程
 ├── references/
-│   ├── sdk-api.md               ← SDK 2.0 API 参考：写法、动画与设置刷新的坑、聚光卡、1.x 旧写法对照
+│   ├── sdk-api.md               ← SDK 2.0 API 参考：写法、动画与设置刷新的坑、聚光卡、文件投放、1.x 旧写法对照
 │   ├── publish.md               ← GitHub 登录 / 上传源码 / 投稿市场全流程
 │   └── troubleshooting.md       ← 编译、加载、动画卡死、改设置不刷新、打包的排错表
 ├── assets/plugin-template/      ← 开箱可编译的插件模板工程

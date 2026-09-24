@@ -118,6 +118,36 @@ public sealed class MyPlugin : IslandPluginBase
         });
     }
 
+    // ---- 文件投放（可选能力，完整说明见 references/sdk-api.md §17）----
+    //
+    // 想让插件"接收"用户拖进来的东西时用它：从资源管理器 / 浏览器把文件、文本、图片拖到岛上，
+    // 岛会展开成一排投放卡片，拖到你这张卡片上松手就执行 Handler。
+    // 注意：用了这个 API，plugin.json 的 min_host_version 必须提到 "2.2.0"（旧宿主没有它）。
+    //
+    // private void RegisterDropTarget()
+    // {
+    //     Context.Island.AddDropTarget(new IslandDropTarget
+    //     {
+    //         Id = "add-to-list",                                    // 插件内唯一；重复注册同一个 Id 是覆盖
+    //         Title = "加入列表",                                     // 卡片只有 72px 宽，标题越短越好
+    //         Glyph = "\uE8C8",
+    //         Hint = "加进当前列表",                                  // 显示在系统拖拽气泡里（卡片上放不下）
+    //         Order = 100,                                           // 升序；宿主内置动作是 900+
+    //         Kinds = IslandDropKind.Files | IslandDropKind.Text,    // 收哪些载荷（默认只收文件）
+    //         Extensions = new[] { ".mp3", ".flac" },                // 可选，只对文件载荷生效
+    //         Handler = context =>
+    //         {
+    //             var what = context.Kind == IslandDropKind.Files
+    //                 ? string.Join("、", context.Names)
+    //                 : context.Text;
+    //
+    //             return Task.FromResult<string?>($"收到：{what}");   // 返回的文案由宿主弹成一条提示
+    //         },
+    //     });
+    // }
+    //
+    // 在 OnInitializeAsync 里调一次 RegisterDropTarget() 即可；插件停用 / 卸载时卡片自动消失。
+
     /// <summary>设置页工厂：每次用户点进页面都会调用一次，必须返回新实例。</summary>
     private UIElement BuildSettingsPage()
     {

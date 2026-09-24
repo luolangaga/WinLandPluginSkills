@@ -40,6 +40,8 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 网上能搜到的、旧教程里的 `IIslandModule`、`[IslandPlugin(...)]`、`IDynamicIslandApi`、`SetLiveContent`、根目录散装 DLL —— **全部是 1.x 的写法，在 2.0 已被删除**，照抄会导致插件加载失败。写代码前先读 `references/sdk-api.md`；任何不确定的 API，以本技能参考文档和宿主源码 `WinIsland.Core/` 为准。
 
+`api_version` 是 `2`；之后新增的能力是**增量 API**，靠 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡要 `2.1.0`**、**文件投放要 `2.2.0`**。写低了旧宿主会抛 `MissingMethodException`（宿主按插件异常捕获并记日志，功能直接不可用）。
+
 ### 铁律 4：构建用的 .NET SDK 不能比宿主新，否则插件必定加载失败
 
 正式版宿主由官方 CI 用 **.NET 10.0.x** 构建，所以插件也必须钉在 .NET 10。
@@ -165,6 +167,24 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 * `plugin.json` 的 `min_host_version` 要写 `"2.1.0"`（旧宿主没有这个 API）。
 * 完整写法、四条细则与坑：`references/sdk-api.md` §16。
 
+**想让插件"接收"拖进来的东西时，用文件投放卡片，不要自己去接拖放事件。**
+
+* 用户从资源管理器 / 浏览器把**文件、文本、图片**拖到岛上时，岛会展开成一排投放卡片，拖到某张卡片上松手就执行它：
+
+  ```csharp
+  Context.Island.AddDropTarget(new IslandDropTarget
+  {
+      Id = "add-to-playlist", Title = "加入播放列表", Glyph = "\uE8C8",
+      Kinds = IslandDropKind.Files,                       // 默认只收文件；文本用 Text、图片用 Image
+      Extensions = new[] { ".mp3", ".flac" },             // 可选：只对文件生效
+      Handler = async context => { await AddAsync(context.Paths); return "已加入"; },
+  });
+  ```
+* 卡片外观、命中、边缘自动滚动、系统拖拽气泡全由宿主负责；`Handler` 在 **UI 线程**被调用，返回的字符串会被宿主当提示弹出来。
+* **不匹配的卡片根本不会出现**（不是变暗）：拖文本时只显示收文本的卡片；`Kinds` 与 `Extensions` 一起决定这一点。
+* `plugin.json` 的 `min_host_version` 要写 `"2.2.0"`（旧宿主没有这个 API）。
+* 完整写法、三种载荷、过滤规则与坑：`references/sdk-api.md` §17。
+
 ## 第 4 步：编译 + 装进用户平时用的 WinIsland 里实测
 
 ### 4.1 编译
@@ -195,7 +215,8 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
    - 小岛上正常显示
    - 鼠标悬浮岛体，展开/收起动画流畅；**来回快速 hover，动画一直跟手、不会卡在中间**
    - 展开后内容完整、没有错位/裁切
-   - **点击岛体 → 弹出超级大卡片（带倾角飞入、居中放大）；点卡片外区域或按 Esc 能收起、岛体恢复正常**
+    - **点击岛体 → 弹出超级大卡片（带倾角飞入、居中放大）；点卡片外区域或按 Esc 能收起、岛体恢复正常**
+    - **（注册了投放目标才有）拖东西到岛上：拖文件时卡片里应有"打开 / 所在位置 / 复制路径"加上你插件那张卡；拖一段文字时应只剩收文本的卡片 —— 卡片数量会随载荷类型变。拖到你那张卡片上松手，要真的执行并弹出你返回的提示**
    - 设置页能打开、开关/按钮有效
    - **改完输入框，不点别处、直接点「立即刷新」：要按新值刷**（刷的是旧值 = LostFocus 那个坑，见 §15.1）
    - **改了设置马上点刷新 / 连续快点两次刷新：两次都要真的跑**（日志里能看到两条；只有一条就是请求被"单飞"吞了，见 §15.2）

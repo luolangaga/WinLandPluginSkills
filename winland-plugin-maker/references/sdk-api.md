@@ -2,6 +2,8 @@
 
 写代码前通读本文。所有类型都在 `WinIsland.Core` 命名空间下。**2.0 与 1.x 不兼容**，文末有对照表，看到旧写法一律作废。
 
+`api_version` 目前是 `2`；之后新增的能力都是**增量 API**，用 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡（§16）要 `2.1.0`**、**文件投放（§17）要 `2.2.0`**。
+
 ## 1. 工程怎么引用 SDK
 
 SDK 2.0 目前以源码形式提供（`WinIsland.Core` 项目）。推荐把插件项目放在 WinIsland 源码仓库的 `samples\` 下，用 `ProjectReference`：
@@ -114,6 +116,8 @@ public sealed class MyPlugin : IslandPluginBase
 | `Log` | `Debug/Info/Warn/Error` 写入插件日志（内存 + 文件） |
 | `Settings` | 作用域化设置存储，键自动加 `<id>.` 前缀 |
 | `Island.SetContent(content)` | 注册常驻内容（`null` 取消）。owner 由宿主绑定为插件 id |
+| `Island.OpenSpotlight(spotlight)` / `Island.CloseSpotlight()` | 打开 / 收起「超级展开」聚光卡（见 §16，需宿主 ≥ 2.1.0） |
+| `Island.AddDropTarget(target)` / `Island.RemoveDropTarget(id)` | 注册 / 移除**文件投放目标**：拖文件/文本/图片到岛上时的一排卡片（见 §17，需宿主 ≥ 2.2.0；停用时自动移除） |
 | `Island.ShowMessage(msg)` | 弹一条临时消息 |
 | `Island.Show(uiElement, size, duration)` | 临时展示任意控件 |
 | `Island.AddSettingsPage(desc)` / `RemoveSettingsPage(id)` | 注册 / 移除设置页（停用时自动移除） |
@@ -620,3 +624,67 @@ public sealed class MySpotlightView : UserControl
 2. **点击岛体 = 打开聚光卡**（在 `OnTap` 里调 `OpenSpotlight`）；不要再用点击去做「跳到别的应用」这类事 —— 那是聚光卡内部按钮该干的活。宿主会识别交互控件：点在按钮/滑块上不会触发 `OnTap`，但你**自绘的可拖动控件**（比如进度条）要在自己的 `Tapped` 里写 `e.Handled = true`，否则拖一下就会顺带弹出聚光卡。
 3. **同一时刻只有一张卡**：别的插件再开就替换（你会先收到 `OnClosed`）；插件停用/卸载时宿主自动收起，不用自己清理。
 4. `plugin.json` 的 `min_host_version` 写 `"2.1.0"`（旧宿主没有这些 API，调用会抛 `MissingMethodException` 并被记成插件异常）；`api_version` 仍然是 `2`。
+
+## 17. 文件投放（把文件 / 文本 / 图片拖到岛上）
+
+用户从资源管理器（或浏览器、编辑器）把东西拖到岛上时，岛会展开成一排**投放卡片**，
+每张卡片是一个"松手就执行"的动作 —— 拖到卡片上松手就调用你的 `Handler`。
+**展示、命中、边缘自动滚动、悬停放大、系统拖拽气泡全由宿主接管**，插件只负责"拿到内容之后干什么"。
+
+```csharp
+protected override Task OnInitializeAsync()
+{
+    Context.Island.AddDropTarget(new IslandDropTarget
+    {
+        Id = "add-to-playlist",                     // 插件内唯一；重复注册同一个 Id 是覆盖语义
+        Title = "加入播放列表",                      // 卡片标题（卡片只有 72px 宽，越短越好）
+        Glyph = "\uE8C8",                           // Segoe Fluent Icons / Segoe MDL2 Assets 字形
+        Hint = "加进当前列表",                       // 可选：显示在系统拖拽气泡里（卡片上放不下）
+        AccentColor = Windows.UI.Color.FromArgb(255, 0x4C, 0xC2, 0xFF),
+        Order = 100,                                // 升序；宿主内置动作是 900+，插件默认 0 排在前面
+        Kinds = IslandDropKind.Files,               // 接受哪些载荷（默认只收文件）
+        Extensions = new[] { ".mp3", ".flac" },     // 可选：文件的扩展名白名单（不填 = 全收）
+        Handler = async context =>
+        {
+            foreach (var path in context.Paths) await AddAsync(path);
+            return $"已加入 {context.Paths.Count} 首";   // 返回文案 → 宿主弹一条临时消息（null = 不提示）
+        },
+    });
+
+    return Task.CompletedTask;
+}
+```
+
+### 17.1 载荷：一次只带一种
+
+| `Kind` | 用户怎么拖出来 | `IslandDropContext` 里有值的是 |
+|---|---|---|
+| `IslandDropKind.Files` | 资源管理器里拖文件 / 文件夹 | `Paths`（完整路径）、`Names`（文件名，与 Paths 一一对应） |
+| `IslandDropKind.Text` | 浏览器 / 编辑器里选中一段文字或链接拖过来 | `Text` |
+| `IslandDropKind.Image` | 浏览器里拖图片、截图工具里拖图 | `ImageBytes`（**源格式**的原始字节，通常是 PNG / JPEG） |
+
+判定顺序是 **文件 > 图片 > 文本**（从浏览器拖图片时往往同时带文本＝图片地址，那种情况按图片处理）。
+`ItemCount` / `IsSingle` 描述"这一批有多少项"：文件是路径条数，文本 / 图片算 1。
+
+### 17.2 三种过滤：Kinds、Extensions、全收
+
+```csharp
+Kinds = IslandDropKind.Files | IslandDropKind.Image,   // 文件和图片都收
+Extensions = new[] { ".png", ".jpg" },                 // 只对文件载荷生效（只收图片文件）
+Kinds = IslandDropKind.All,                            // 三种都收，按 context.Kind 分支处理
+```
+
+- **不匹配的卡片根本不出现**（不是变暗）：面板只展示"能对这份载荷做什么"；一张都匹配不上时摘要写「没有卡片能接收它」。
+- 用户拖得很快（载荷还没读完就松手）时卡片会先全亮，宿主在松手瞬间按真实载荷**复核一次**，不匹配就当落空 —— 不会误触发你的 `Handler`。
+- 文件夹没有扩展名，所以只声明了 `Extensions` 的卡片对文件夹一律不收。
+
+### 17.3 必须知道的规则
+
+1. **只在需要"接收外部内容"时才注册投放目标**：它不是常驻 UI，只在拖拽期间出现。
+2. **`Handler` 在 UI 线程被调用**（界面状态可以放心直接改）；耗时活儿自己 `await` / `RunOnUI` 编组 —— 松手那一刻投放面板就已经收回了，宿主不会因为你慢而卡住。
+3. **`Handler` 抛异常不影响宿主**：宿主包了守卫，只记日志并计入"累计 5 次未处理异常自动停用"。
+4. **插件停用 / 卸载时卡片自动消失**（`PluginScope` 兜底），不需要自己清理；运行期想换一批卡片就再调一次 `AddDropTarget`（同 Id 覆盖）或 `RemoveDropTarget(id)`。
+5. **图片有 32MB 上限**：超过或读不出来时这次投放等于落空，日志里会写明原因。
+6. **`Order` 决定卡片顺序**：插件默认 0，排在宿主内置动作（打开 / 所在位置 / 复制路径 / 复制文本 / 保存图片，900+）前面。
+7. **用户可以在「设置 → 通用 → 文件投放」里关掉整个功能**：关掉后岛对拖放完全无感，这不是插件的 bug。
+8. `plugin.json` 的 `min_host_version` 写 `"2.2.0"`（旧宿主没有这些 API，调用会抛 `MissingMethodException` 并被记成插件异常）；`api_version` 仍然是 `2`。
