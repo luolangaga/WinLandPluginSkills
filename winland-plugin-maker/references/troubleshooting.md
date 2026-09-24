@@ -8,7 +8,7 @@
 |------|------|------|
 | `NETSDK1045` / 不认识 `net10.0-windows10.0.26100.0` | 没装 .NET 10 SDK，或版本太老 | 装 .NET 10 SDK；`dotnet --list-sdks` 确认有 `10.x` |
 | 找不到 `Microsoft.WindowsAppSDK` / 还原失败 | 网络问题或 NuGet 源不通 | 换网络/代理重试；`dotnet nuget list source` 检查源 |
-| `找不到版本为 (>= 2.2.1) 的包 luolan.winland.Core` | ① 网络/代理不通，还原到不了 nuget.org ② 或刚发布的版本还在 NuGet 索引中（几分钟）③ NuGet 源被改成了内网镜像 | 先确认能 `Invoke-RestMethod https://api.nuget.org/v3-flatcontainer/luolan.winland.core/index.json`；代理下用 `dotnet nuget list source` 看源；实在不行用本地源装自己打的包（`dotnet nuget add source <目录> -n local`） |
+| `找不到版本为 (>= 2.2.1) 的包 luolan.winland.Core` | ① 网络/代理不通，还原到不了 nuget.org ② 刚发布的版本还在 NuGet 索引中（几分钟）③ **NuGet 客户端的 HTTP 缓存**（默认 30 分钟：新版本已上线但本地还只认旧版本，报"在 nuget.org 中找到 N 个版本，最接近版本 X"）④ NuGet 源被改成了内网镜像 | 先确认能 `Invoke-RestMethod https://api.nuget.org/v3-flatcontainer/luolan.winland.core/index.json`；再 `dotnet nuget locals http-cache --clear` 然后 `dotnet restore --force`（第 ③ 种情况就解决了）；代理下用 `dotnet nuget list source` 看源；实在不行用本地源装自己打的包（`dotnet nuget add source <目录> -n local`） |
 | 编译通过但 `plugins\<id>\` 里没有文件 | 拷贝目标路径不对 | 检查 csproj 的 `WinIslandPluginsDir` 指向真实的宿主目录；`dotnet build` 输出里看 CopyToWinIsland 是否执行 |
 | `dotnet build` 报文件被占用 | WinIsland 正在运行，dll 锁着 | 关掉 WinIsland 再 build，或先禁用该插件 |
 | 本地构建好好的，装到宿主上却报"版本比宿主新" | `global.json` 是按**当前目录**生效的：在项目目录之外用 `dotnet build <路径>` 调用不受它约束，会挑机器上最新的 SDK（构建日志里能看到 `sdk\11.x...\Sdks\Microsoft.NET.Sdk`） | 先 `cd` 进插件项目目录再 `dotnet build`；在项目目录里 `dotnet --version` 确认是 `10.x` |
