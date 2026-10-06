@@ -2,7 +2,7 @@
 
 写代码前通读本文。所有类型都在 `WinIsland.Core` 命名空间下。**2.0 与 1.x 不兼容**，文末有对照表，看到旧写法一律作废。
 
-`api_version` 目前是 `2`；之后新增的能力都是**增量 API**，用 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡（§16）要 `2.1.0`**、**文件投放（§17）要 `2.2.0`**。
+`api_version` 目前是 `2`；之后新增的能力是**增量 API**，用 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡（§16）要 `2.1.0`**、**文件投放（§17）要 `2.2.0`**、**主题（§18）要 `2.3.0`**、**内容里的输入框（§19）要 `2.4.0`**（最后这条没有新 API，纯宿主行为）。
 
 ## 1. 工程怎么引用 SDK
 
@@ -10,14 +10,14 @@
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="luolan.winland.Core" Version="2.2.1" PrivateAssets="all" ExcludeAssets="runtime" />
+  <PackageReference Include="luolan.winland.Core" Version="2.3.1" PrivateAssets="all" ExcludeAssets="runtime" />
 </ItemGroup>
 ```
 
 或者在插件项目目录里跑 `dotnet add package luolan.winland.Core`（不写 `--version` 就装最新版）。
 
-- **版本号怎么对**：SDK 包的**主次版本号 = 宿主 API 版本** —— `2.2.x` = 基础能力 + 聚光卡（§16）+ 文件投放（§17），补丁位（如 `2.2.0` → `2.2.1`）只是 SDK 包本身的修正，不引入新 API。当前最新 `2.2.1`。
-- 用到 2.1 / 2.2 的增量 API 时，`plugin.json` 的 `min_host_version` 要跟着提到 `"2.1.0"` / `"2.2.0"`（**注意：这里写的是宿主版本，跟 SDK 包的补丁号无关**）。
+- **版本号怎么对**：SDK 包的**主次版本号 = 宿主 API 版本** —— `2.3.x` = 基础能力 + 聚光卡（§16）+ 文件投放（§17）+ 主题（§18），补丁位（如 `2.3.0` → `2.3.1`）只是 SDK 包本身的修正，不引入新 API。当前最新 `2.3.1`。**宿主 2.4.0 的「输入框」（§19）没有任何新 API**：插件用现有最新包编译即可，不需要换 SDK 包。
+- 用到 2.1 / 2.2 / 2.3 / 2.4 的能力时，`plugin.json` 的 `min_host_version` 要跟着提到 `"2.1.0"` / `"2.2.0"` / `"2.3.0"` / `"2.4.0"`（**注意：这里写的是宿主版本，跟 SDK 包的补丁号无关**）。
 - `ExcludeAssets="runtime"` **是必须的**：`WinIsland.Core.dll` 由宿主提供，不能进插件包（市场 CI 会拒绝）。
 - 插件 TFM 必须是 `net10.0-windows10.0.26100.0`（包只提供这个目标框架）。
 - **没有源码也能做插件**。只有「想跟着宿主源码一起改 SDK」或「需要源码构建的宿主调试副本」时才需要源码仓库，那时把上面那行换成 `ProjectReference`：
@@ -133,6 +133,7 @@ public sealed class MyPlugin : IslandPluginBase
 | `Theme` | 岛体当前的明暗主题（`IIslandTheme`：`IsLight` + `Changed`），配色适配用（见 §18，需宿主 ≥ 2.3.0） |
 | `Island.OpenSpotlight(spotlight)` / `Island.CloseSpotlight()` | 打开 / 收起「超级展开」聚光卡（见 §16，需宿主 ≥ 2.1.0） |
 | `Island.AddDropTarget(target)` / `Island.RemoveDropTarget(id)` | 注册 / 移除**文件投放目标**：拖文件/文本/图片到岛上时的一排卡片（见 §17，需宿主 ≥ 2.2.0；停用时自动移除） |
+| （无 API）内容里的标准文本控件 | `TextBox` / `PasswordBox` / `RichEditBox` 等**可以直接打字**（宿主 ≥ 2.4.0 的「输入会话」，见 §19）—— 用了就把 `min_host_version` 提到 `"2.4.0"` |
 | `Island.ShowMessage(msg)` | 弹一条临时消息 |
 | `Island.Show(uiElement, size, duration)` | 临时展示任意控件 |
 | `Island.AddSettingsPage(desc)` / `RemoveSettingsPage(id)` | 注册 / 移除设置页（停用时自动移除） |
@@ -784,3 +785,23 @@ private Windows.UI.Color Neutral(byte alpha) => _theme.IsLight
 4. 视图活得越久越要重刷：宿主会在插件停用时撤销一切，但**主题变化不会重建你的视图**。
 5. 用了 `Context.Theme` 的插件，`plugin.json` 的 `min_host_version` 写 `"2.3.0"`；`api_version` 仍然是 `2`。
 6. 自查：把系统主题切一遍（浅色↔深色），岛上的文字、灰底、分隔线都得跟着变。
+
+## 19. 输入框（键盘输入）
+
+岛体与聚光卡默认**不抢焦点**（窗口是 `WS_EX_NOACTIVATE`，点它们不会打断用户正在用的程序 —— 剪贴板插件"直接粘贴回原窗口"就依赖这条）。从宿主 **2.4.0** 起，插件内容里的**标准文本输入控件可以直接打字**，插件零改动：
+
+```csharp
+var box = new TextBox { PlaceholderText = "输入后回车" };
+box.KeyDown += (_, e) => { if (e.Key == Windows.System.VirtualKey.Enter) Apply(box.Text); };
+```
+
+- 用户在岛体/聚光卡内容里点到或聚焦 `TextBox` / `PasswordBox` / `RichEditBox`（含 `NumberBox`、`AutoSuggestBox` 的内部编辑器）时，宿主会临时把窗口切到可激活并抢一次前台 —— 光标、选区、**中文输入法（候选窗）**都正常；窗口一失活就还原默认的"不抢焦点"。
+- 点其它控件（按钮、滑块、开关……）**不会**抢焦点，原有交互完全不受影响。
+- **输入期间岛不会因鼠标移开而收起**（保护正在进行的输入）；点岛外 / 别的程序 = 结束输入，岛恢复正常的悬停收起行为。
+- 支持的是**标准控件**；完全自绘的输入（自己画光标、自己处理按键）不在此列 —— 需要输入就用标准控件，不要自己接键盘事件。
+
+### 19.1 版本门槛
+
+- 这条能力**没有新 API**（`api_version` 仍是 `2`，SDK 包也不需要换，用现有最新 `luolan.winland.Core` 编译即可）—— 它是宿主行为：旧宿主上文本框点得亮、但敲不进字。
+- 所以：插件内容里只要有标准文本输入控件，就在 `plugin.json` 里写 `"min_host_version": "2.4.0"`。
+- 聚光卡里的输入遵循同一套规则；`Esc` 语义不变（关闭卡片）—— 组词中的第一次 `Esc` 会被输入法先吃掉（取消组词），再按才关卡。

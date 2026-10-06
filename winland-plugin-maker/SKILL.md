@@ -40,7 +40,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 网上能搜到的、旧教程里的 `IIslandModule`、`[IslandPlugin(...)]`、`IDynamicIslandApi`、`SetLiveContent`、根目录散装 DLL —— **全部是 1.x 的写法，在 2.0 已被删除**，照抄会导致插件加载失败。写代码前先读 `references/sdk-api.md`；任何不确定的 API，以本技能参考文档和 SDK 里的接口注释（NuGet 包 `luolan.winland.Core`）为准。
 
-`api_version` 是 `2`；之后新增的能力是**增量 API**，靠 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡要 `2.1.0`**、**文件投放要 `2.2.0`**、**主题（`Context.Theme`）要 `2.3.0`**。写低了旧宿主会抛 `MissingMethodException`（宿主按插件异常捕获并记日志，功能直接不可用）。
+`api_version` 是 `2`；之后新增的能力是**增量 API**，靠 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡要 `2.1.0`**、**文件投放要 `2.2.0`**、**主题（`Context.Theme`）要 `2.3.0`**、**内容里的输入框要 `2.4.0`**（这条没有新 API，纯宿主行为）。API 写低了旧宿主会抛 `MissingMethodException`（宿主按插件异常捕获并记日志，功能直接不可用）；输入框写低了则是"框点得亮、打不了字"。
 
 ### 铁律 4：构建用的 .NET SDK 不能比宿主新，否则插件必定加载失败
 
@@ -127,7 +127,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
    - 首选你代跑 `winget install --id Microsoft.DotNet.SDK.10`（弹 UAC 时让用户点"是"；装完**重开终端**才能识别）
    - 没有 winget 或安装失败 → 让用户打开 `https://dotnet.microsoft.com/download/dotnet/10.0` 下载安装包双击安装
    - 装完再跑一次 `dotnet --list-sdks` 验证，**装出了 `10.x` 才能继续**。注意这里是"有 10.x"，**不是"10 或更新"**：用户机器上有 11/预览版不算问题，别让人为了这个去卸 SDK —— 挡住它的是铁律 4 的项目级 `global.json`；但体检结果里出现更高的 SDK 时，**一定要提醒**：项目里那份 `global.json` 不能少。
-2. **插件 SDK：不用你操心，从 NuGet 装**。插件用的 SDK 是 NuGet 包 `luolan.winland.Core`（主次版本 = 宿主 API 版本，当前最新 `2.2.1`），第 2 步的模板里已经写好了 —— **不需要 WinIsland 源码，也不用手动下载任何东西**。
+2. **插件 SDK：不用你操心，从 NuGet 装**。插件用的 SDK 是 NuGet 包 `luolan.winland.Core`（主次版本 = 宿主 API 版本，当前最新 `2.3.1`），第 2 步的模板里已经写好了 —— **不需要 WinIsland 源码，也不用手动下载任何东西**。
    - 这一步唯一可能的坑是网络（还原不动就查 `references/troubleshooting.md` 的「找不到版本为 … 的包」一行；国内网络可能需要代理）。
    - 只有用户明确说「我要改 SDK 本身」或「我要用源码构建的宿主来调试」时，才需要 WinIsland 源码仓库；那时把模板 csproj 里的 `PackageReference` 换成 `ProjectReference`（见 `references/sdk-api.md` §1）。
 3. **宿主位置（关键）**：插件最终要放进 WinIsland 的 `plugins\` 目录（与 `WinIsland.exe` 同一文件夹）：
@@ -195,6 +195,13 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 * **不匹配的卡片根本不会出现**（不是变暗）：拖文本时只显示收文本的卡片；`Kinds` 与 `Extensions` 一起决定这一点。
 * `plugin.json` 的 `min_host_version` 要写 `"2.2.0"`（旧宿主没有这个 API）。
 * 完整写法、三种载荷、过滤规则与坑：`references/sdk-api.md` §17。
+
+**想放输入框？用标准控件就行，不要自己接键盘事件。**
+
+* 内容里的标准文本控件（`TextBox` / `PasswordBox` / `RichEditBox`，含 `NumberBox`、`AutoSuggestBox` 的内部编辑器）在宿主 ≥ 2.4.0 上**可以直接打字**（光标、选区、中文输入法候选都正常）—— 宿主只在文本框获得焦点时临时让窗口可激活，点按钮/滑块仍然不抢焦点。
+* 输入期间鼠标移开岛**不会收起**；点岛外 / 别的程序 = 结束输入，恢复正常行为。
+* 完全自绘的输入（自己画光标、自己处理按键）不在此列 —— 需要输入就用标准控件。
+* `plugin.json` 的 `min_host_version` 要写 `"2.4.0"`（这条没有新 API；旧宿主上框打得开、打不了字）。详见 `references/sdk-api.md` §19。
 
 ## 第 4 步：编译 + 装进用户平时用的 WinIsland 里实测
 

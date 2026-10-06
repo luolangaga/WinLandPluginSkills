@@ -8,7 +8,7 @@
 |------|------|------|
 | `NETSDK1045` / 不认识 `net10.0-windows10.0.26100.0` | 没装 .NET 10 SDK，或版本太老 | 装 .NET 10 SDK；`dotnet --list-sdks` 确认有 `10.x` |
 | 找不到 `Microsoft.WindowsAppSDK` / 还原失败 | 网络问题或 NuGet 源不通 | 换网络/代理重试；`dotnet nuget list source` 检查源 |
-| `找不到版本为 (>= 2.2.1) 的包 luolan.winland.Core` | ① 网络/代理不通，还原到不了 nuget.org ② 刚发布的版本还在 NuGet 索引中（几分钟）③ **NuGet 客户端的 HTTP 缓存**（默认 30 分钟：新版本已上线但本地还只认旧版本，报"在 nuget.org 中找到 N 个版本，最接近版本 X"）④ NuGet 源被改成了内网镜像 | 先确认能 `Invoke-RestMethod https://api.nuget.org/v3-flatcontainer/luolan.winland.core/index.json`；再 `dotnet nuget locals http-cache --clear` 然后 `dotnet restore --force`（第 ③ 种情况就解决了）；代理下用 `dotnet nuget list source` 看源；实在不行用本地源装自己打的包（`dotnet nuget add source <目录> -n local`） |
+| `找不到版本为 (>= 2.3.1) 的包 luolan.winland.Core` | ① 网络/代理不通，还原到不了 nuget.org ② 刚发布的版本还在 NuGet 索引中（几分钟）③ **NuGet 客户端的 HTTP 缓存**（默认 30 分钟：新版本已上线但本地还只认旧版本，报"在 nuget.org 中找到 N 个版本，最接近版本 X"）④ NuGet 源被改成了内网镜像 | 先确认能 `Invoke-RestMethod https://api.nuget.org/v3-flatcontainer/luolan.winland.core/index.json`；再 `dotnet nuget locals http-cache --clear` 然后 `dotnet restore --force`（第 ③ 种情况就解决了）；代理下用 `dotnet nuget list source` 看源；实在不行用本地源装自己打的包（`dotnet nuget add source <目录> -n local`） |
 | 编译通过但 `plugins\<id>\` 里没有文件 | 拷贝目标路径不对 | 检查 csproj 的 `WinIslandPluginsDir` 指向真实的宿主目录；`dotnet build` 输出里看 CopyToWinIsland 是否执行 |
 | `dotnet build` 报文件被占用 | WinIsland 正在运行，dll 锁着 | 关掉 WinIsland 再 build，或先禁用该插件 |
 | 本地构建好好的，装到宿主上却报"版本比宿主新" | `global.json` 是按**当前目录**生效的：在项目目录之外用 `dotnet build <路径>` 调用不受它约束，会挑机器上最新的 SDK（构建日志里能看到 `sdk\11.x...\Sdks\Microsoft.NET.Sdk`） | 先 `cd` 进插件项目目录再 `dotnet build`；在项目目录里 `dotnet --version` 确认是 `10.x` |
@@ -21,7 +21,7 @@
 | 「一个包里有多个 IIslandPlugin 实现」 | 引用了别的插件工程或残留了旧类 | 保证一个包只有一个实现类 |
 | 「缺少依赖程序集：xxx」 | 第三方依赖没复制到插件目录；或 `deps.json` 缺失；**或构建用的 SDK 比宿主新**（先看这一条：宿主 2.0.x 起会直接报出版本差） | 先在项目目录 `dotnet --version` 确认是 `10.x`（不是就补 `global.json`，见铁律 4）；再打开 `CopyLocalLockFileAssemblies`；确认 `xxx.dll` 和 `<入口>.deps.json` 都被拷进 `plugins\<id>\` |
 | 「插件需要 X a.b.c，宿主提供的是 X d.e.f」；或加载报 `FileNotFoundException`、静态构造报 `TypeInitializationException` | 插件构建用的 .NET SDK 比宿主新（正式版宿主由 CI 用 `.NET 10.0.x` 构建），引用的投影程序集（`Microsoft.Windows.SDK.NET` / `WinRT.Runtime`）版本高于宿主，而 .NET 不允许向下绑定强命名程序集 | 项目根目录（`.csproj` 同级）放 `global.json` 钉住 .NET 10（模板自带，别删）→ `dotnet --version` 确认变成 `10.x` → 重新 `dotnet build`。详见 `references/sdk-api.md` §12 |
-| 「插件针对 WinIsland.Core x.y 构建，与宿主不兼容」 | 用了 1.x 的 NuGet 包，或旧版编译的 dll | 用 2.x 的 SDK 重新编译：csproj 里 `<PackageReference Include="luolan.winland.Core" Version="2.2.1" …>`（`api_version` 2） |
+| 「插件针对 WinIsland.Core x.y 构建，与宿主不兼容」 | 用了 1.x 的 NuGet 包，或旧版编译的 dll | 用 2.x 的 SDK 重新编译：csproj 里 `<PackageReference Include="luolan.winland.Core" Version="2.3.1" …>`（`api_version` 2） |
 | 「检测到旧格式 DLL」 | 把 dll 散装在 `plugins\` 根目录了 | v2 只认 `plugins\<id>\ + plugin.json` 或 `.lwp` 包，重新打包 |
 | plugin.json 校验失败（红色错误状态） | `id` 格式/`version` 格式/`entry_dll` 不对 | 按提示里的字段说明改；`entry_dll` 只能是文件名、不能带路径、不能是 `WinIsland.Core.dll` |
 | 插件列表里根本不出现 | 目录位置不对（不在宿主的 `plugins\` 下）、或缺少 `plugin.json` | 用「插件管理 → 打开目录」核对；重启或重开设置窗口刷新列表 |
@@ -41,6 +41,7 @@
 | 大岛尺寸/布局被"拉宽拉高" | 宿主会统一展开尺寸（取所有内容最大值） | 视图用自适应布局（`*` 行列 + `Stretch`），不要写死尺寸 |
 | 聚光卡（超级展开）点不出来 / 一片空白 | ① `Content` 复用了岛视图那个 `UIElement`（每个窗口一棵树，必须新建视图）② `plugin.json` 的 `min_host_version` 没写 ≥ `2.1.0`，宿主太旧没有这个 API（日志里是 `MissingMethodException`） | 用独立视图 + 提高 `min_host_version`；详见 `references/sdk-api.md` §16 |
 | 聚光卡关不掉 | 卡片是模态的：点卡片外区域或按 `Esc` 收起 | 插件也可以自己调 `Context.Island.CloseSpotlight()` |
+| 岛上的文本框点得亮、但打不了字（没有光标，中文输入法不弹候选） | 输入支持（§19）是**宿主行为**：宿主低于 2.4.0，或插件没把 `min_host_version` 提到 `"2.4.0"`、跑在旧宿主上 | 让用户把 WinIsland 升级到 ≥ 2.4.0；`plugin.json` 写 `"min_host_version": "2.4.0"`；详见 `references/sdk-api.md` §19 |
 | 拖东西到岛上完全没反应（岛不展开） | ① 用户在「设置 → 通用 → 文件投放」里关掉了这个功能（总开关）② 拖的是不支持的载荷（HTML 片段、自定义格式）—— 只有文件 / 文本 / 图片会打开投放面板 | 先让用户确认那个开关是开的；日志里能看到「拖入的载荷读不出来」之类的说明 |
 | 面板出来了，但**我插件的卡片没出现** | 载荷类型 / 扩展名不匹配：不匹配的卡片是**不显示**（不是变暗） | 检查 `Kinds`（默认只收 `Files`，收文本/图片要显式加）与 `Extensions`（只对文件生效）；拖一段文字测试时文件类卡片本来就不该出现 |
 | 卡片出现了，松手却什么都没发生 | ① 松手时没对准卡片（落在摘要区/空白处 = 主动取消）② 拖得太快，载荷还没读完就松手，复核时发现不匹配 | 让用户对准卡片再松手；日志里会写「已忽略：它不接受…」 |
