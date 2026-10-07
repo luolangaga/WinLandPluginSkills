@@ -2,7 +2,7 @@
 
 写代码前通读本文。所有类型都在 `WinIsland.Core` 命名空间下。**2.0 与 1.x 不兼容**，文末有对照表，看到旧写法一律作废。
 
-`api_version` 目前是 `2`；之后新增的能力是**增量 API**，用 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡（§16）要 `2.1.0`**、**文件投放（§17）要 `2.2.0`**、**主题（§18）要 `2.3.0`**、**内容里的输入框（§19）要 `2.4.0`**（最后这条没有新 API，纯宿主行为）。
+`api_version` 目前是 `2`；之后新增的能力是**增量 API**，用 `plugin.json` 的 `min_host_version` 做门槛 —— 用到哪个就把门槛提到对应版本：**聚光卡（§16）要 `2.1.0`**、**文件投放（§17）要 `2.2.0`**、**主题（§18）要 `2.3.0`**、**内容里的输入框（§19）要 `2.4.0`**（这条没有新 API，纯宿主行为）、**展开优先级（§5 `ExpandedPriority`）要 `2.4.0`**（这条是新 API）。
 
 ## 1. 工程怎么引用 SDK
 
@@ -10,13 +10,13 @@
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="luolan.winland.Core" Version="2.3.1" PrivateAssets="all" ExcludeAssets="runtime" />
+  <PackageReference Include="luolan.winland.Core" Version="2.4.0" PrivateAssets="all" ExcludeAssets="runtime" />
 </ItemGroup>
 ```
 
 或者在插件项目目录里跑 `dotnet add package luolan.winland.Core`（不写 `--version` 就装最新版）。
 
-- **版本号怎么对**：SDK 包的**主次版本号 = 宿主 API 版本** —— `2.3.x` = 基础能力 + 聚光卡（§16）+ 文件投放（§17）+ 主题（§18），补丁位（如 `2.3.0` → `2.3.1`）只是 SDK 包本身的修正，不引入新 API。当前最新 `2.3.1`。**宿主 2.4.0 的「输入框」（§19）没有任何新 API**：插件用现有最新包编译即可，不需要换 SDK 包。
+- **版本号怎么对**：SDK 包的**主次版本号 = 宿主 API 版本** —— `2.4.x` = 基础能力 + 聚光卡（§16）+ 文件投放（§17）+ 主题（§18）+ 展开优先级（§5 `ExpandedPriority`），补丁位（如 `2.4.0` → `2.4.1`）只是 SDK 包本身的修正，不引入新 API。当前最新 `2.4.0`。宿主 2.4.0 的「输入框」（§19）**不需要新 API**（纯宿主行为），但 `ExpandedPriority` **是** 2.4.0 新增的 API —— 要用它就得引 `2.4.0` 的包。
 - 用到 2.1 / 2.2 / 2.3 / 2.4 的能力时，`plugin.json` 的 `min_host_version` 要跟着提到 `"2.1.0"` / `"2.2.0"` / `"2.3.0"` / `"2.4.0"`（**注意：这里写的是宿主版本，跟 SDK 包的补丁号无关**）。
 - `ExcludeAssets="runtime"` **是必须的**：`WinIsland.Core.dll` 由宿主提供，不能进插件包（市场 CI 会拒绝）。
 - 插件 TFM 必须是 `net10.0-windows10.0.26100.0`（包只提供这个目标框架）。
@@ -175,11 +175,34 @@ Context.Island.SetContent(new IslandLiveContent
 
 | 属性 | 默认 | 说明 |
 |------|------|------|
-| `Priority` | 0 | 多个插件同时注册内容时，数值大者占据主岛，其余进展开后的队列 |
+| `Priority` | 0 | 多个插件同时注册内容时，数值大者占据**小岛常驻**，其余进展开后的队列 |
+| `ExpandedPriority` | null（= `Priority`） | **可选**：只决定**展开后**的排列（展开主卡 + 队列）。宿主 ≥ 2.4.0，见下 |
 | `OwnerLabel` / `OwnerGlyph` / `OwnerAccent` | null | 归属标识（标签、字形、主题色） |
 | `MorphView` | null | **推荐**，与 `Compact/ExpandedContent` 二选一 |
 | `OnTap` | null | 内容被点击时回调 |
 | `CompactSize` / `ExpandedSize` | 230×40 / 420×150 | 期望尺寸 |
+
+### 5.1 展开优先级（`ExpandedPriority`，宿主 ≥ 2.4.0）
+
+**小岛常驻**由 `Priority` 决定（数值最高的那张）；**展开后**的主卡与队列则由 `ExpandedPriority` 决定。不设 `ExpandedPriority` 时它**等同 `Priority`**，所以旧插件的顺序完全不变。
+
+两者分开，就能做到"小岛显示 A、展开主卡是 B"这种相反的效果：
+
+```csharp
+// 小岛常驻不抢（别人 Priority 高），但展开时这张卡排最前
+Context.Island.SetContent(new IslandLiveContent
+{
+    Priority = 20,             // 小岛常驻按这个排 —— 这里让给别人
+    ExpandedPriority = 200,    // 展开主卡是这一张
+    MorphView = new MyMorphView(),
+    CompactSize = new Windows.Foundation.Size(250, 40),
+    ExpandedSize = new Windows.Foundation.Size(420, 150),
+});
+```
+
+- 这是 2.4.0 新增的 API：用到它时 `plugin.json` 的 `min_host_version` 要写 `"2.4.0"`（旧宿主上没有这个属性，会 `MissingMethodException`）。
+- 宿主也可以在「设置 → 插件管理」里用 `plugin.<pluginId>.expandedPriority` 覆盖它（`plugin.<pluginId>.priority` 覆盖的是 `Priority`）。
+- 不设置时**零影响**：没人设 `ExpandedPriority` 的话，两张排序表完全相同，也就是旧行为。
 
 **尺寸由宿主统一**：展开态所有内容同宽（取最大展开宽度）、队列卡片同高。视图要用自适应布局（Grid 的 `*` 行列、`Stretch` 对齐），不要假设一定拿到自己声明的精确尺寸。
 

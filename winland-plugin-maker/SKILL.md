@@ -127,7 +127,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
    - 首选你代跑 `winget install --id Microsoft.DotNet.SDK.10`（弹 UAC 时让用户点"是"；装完**重开终端**才能识别）
    - 没有 winget 或安装失败 → 让用户打开 `https://dotnet.microsoft.com/download/dotnet/10.0` 下载安装包双击安装
    - 装完再跑一次 `dotnet --list-sdks` 验证，**装出了 `10.x` 才能继续**。注意这里是"有 10.x"，**不是"10 或更新"**：用户机器上有 11/预览版不算问题，别让人为了这个去卸 SDK —— 挡住它的是铁律 4 的项目级 `global.json`；但体检结果里出现更高的 SDK 时，**一定要提醒**：项目里那份 `global.json` 不能少。
-2. **插件 SDK：不用你操心，从 NuGet 装**。插件用的 SDK 是 NuGet 包 `luolan.winland.Core`（主次版本 = 宿主 API 版本，当前最新 `2.3.1`），第 2 步的模板里已经写好了 —— **不需要 WinIsland 源码，也不用手动下载任何东西**。
+2. **插件 SDK：不用你操心，从 NuGet 装**。插件用的 SDK 是 NuGet 包 `luolan.winland.Core`（主次版本 = 宿主 API 版本，当前最新 `2.4.0`），第 2 步的模板里已经写好了 —— **不需要 WinIsland 源码，也不用手动下载任何东西**。
    - 这一步唯一可能的坑是网络（还原不动就查 `references/troubleshooting.md` 的「找不到版本为 … 的包」一行；国内网络可能需要代理）。
    - 只有用户明确说「我要改 SDK 本身」或「我要用源码构建的宿主来调试」时，才需要 WinIsland 源码仓库；那时把模板 csproj 里的 `PackageReference` 换成 `ProjectReference`（见 `references/sdk-api.md` §1）。
 3. **宿主位置（关键）**：插件最终要放进 WinIsland 的 `plugins\` 目录（与 `WinIsland.exe` 同一文件夹）：
@@ -158,6 +158,7 @@ description: WinIsland（WinLand，Windows 11 灵动岛）插件制作全流程�
 
 - 插件类继承 `IslandPluginBase`，视图实现 `IMorphView`，设置页是普通 `UserControl`/控件树
 - 常驻内容用 `Context.Island.SetContent(...)` 注册；不要自己去动窗口尺寸
+- 多个插件同时常驻时的排列：`Priority` 决定**小岛常驻**哪一张；想让**展开后**的排列不一样（例如小岛显示 A、展开主卡是 B），用可选的 `ExpandedPriority`（不设＝等同 `Priority`）；它要宿主 ≥ 2.4.0，见 `references/sdk-api.md` §5.1
 - 变形动画：所有元素常驻可视树；隐藏用 `Height = 0 + Opacity = 0`，**不要**用 `Visibility = Collapsed`；**必须逐帧赋值（禁止 Storyboard，见铁律 5）**，缓动与宿主一致：`BackEase(EaseOut, 0.45)`
 - 设置项用 `Settings.Get/Set`（键会自动加 `<id>.` 前缀，写短名即可）
 - 设置页里的输入框/下拉框：**动作按钮（「立即刷新」之类）里要先提交输入框的值，再干活**（按钮点击早于 LostFocus，否则用的是旧值）；失焦、回车也要提交；值没变就别写设置

@@ -28,6 +28,9 @@ public sealed class MyPlugin : IslandPluginBase
         _content = new IslandLiveContent
         {
             Priority = Settings.Get("priority", 10),
+            // 可选：只决定「展开后」的排列（小岛常驻仍看 Priority）。不设＝等同 Priority（旧行为）。
+            // 用到它时 plugin.json 的 min_host_version 要提到 "2.4.0"。见 references/sdk-api.md §5.1
+            // ExpandedPriority = 200,
             OwnerLabel = Manifest.Name,
             OwnerGlyph = Manifest.IconGlyph,
             OwnerAccent = Windows.UI.Color.FromArgb(255, 0, 122, 255),
